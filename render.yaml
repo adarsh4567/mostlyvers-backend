@@ -1,0 +1,59 @@
+services:
+  - type: web
+    name: mostlyvers-api
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health/ready
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: BILLING_MODE
+        value: FREE_LAUNCH
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_OTP_REQUIRED
+        value: "true"
+      - key: ADMIN_COOKIE_SECURE
+        value: "true"
+      - key: PLAY_INTEGRITY_REQUIRED
+        value: "true"
+      - key: ANDROID_PACKAGE_NAME
+        value: com.mostlyvers.app
+      - key: READER_RESET_URL
+        value: mostlyvers://reset-password
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ADMIN_ORIGIN
+        sync: false
+      - key: ACCESS_TOKEN_PRIVATE_KEY_BASE64
+        sync: false
+      - key: CONTENT_KEY_ENCRYPTION_KEY_BASE64
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT_NUMBER
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+        sync: false
+      - key: INTERNAL_JOB_TOKEN
+        sync: false

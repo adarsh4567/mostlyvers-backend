@@ -1,0 +1,82 @@
+services:
+  backend:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://mostlyvers:mostlyvers@postgres:5432/mostlyvers?sslmode=disable
+      HTTP_PORT: 5001
+      PUBLIC_BASE_URL: http://localhost:5001
+      R2_ENDPOINT: http://minio:9000
+      R2_PRESIGN_ENDPOINT: http://localhost:9000
+      R2_ACCESS_KEY_ID: minio
+      R2_SECRET_ACCESS_KEY: minio123
+      R2_PUBLIC_BASE_URL: http://localhost:9000/mostlyvers-public
+      SMTP_ADDR: mailpit:1025
+    ports: ["5001:5001"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      create-buckets: { condition: service_completed_successfully }
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mostlyvers
+      POSTGRES_USER: mostlyvers
+      POSTGRES_PASSWORD: mostlyvers
+    ports: ["5432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mostlyvers"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  minio:
+    # MinIO stopped publishing its public container images. RustFS provides the
+    # same S3-compatible local-development endpoint and web console.
+    image: rustfs/rustfs:1.0.0
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: minio
+      RUSTFS_SECRET_KEY: minio123
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["minio-data:/data"]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -fsS http://localhost:9000/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+  create-buckets:
+    image: amazon/aws-cli:2.31.22
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        aws --endpoint-url http://minio:9000 s3api create-bucket
+        --bucket mostlyvers-private 2>/dev/null || true;
+        aws --endpoint-url http://minio:9000 s3api create-bucket
+        --bucket mostlyvers-public 2>/dev/null || true;
+        aws --endpoint-url http://minio:9000 s3api put-bucket-policy
+        --bucket mostlyvers-public
+        --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::mostlyvers-public/*"}]}';
+        aws --endpoint-url http://minio:9000 s3api put-bucket-cors
+        --bucket mostlyvers-private
+        --cors-configuration '{"CORSRules":[{"AllowedOrigins":["http://localhost:5174"],"AllowedMethods":["GET","PUT","POST","DELETE","HEAD"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":3600}]}';
+        aws --endpoint-url http://minio:9000 s3api put-bucket-cors
+        --bucket mostlyvers-public
+        --cors-configuration '{"CORSRules":[{"AllowedOrigins":["http://localhost:5174"],"AllowedMethods":["GET","PUT","POST","DELETE","HEAD"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":3600}]}'
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["8025:8025", "1025:1025"]
+volumes:
+  postgres-data:
+  minio-data:

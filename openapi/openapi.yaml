@@ -1,0 +1,170 @@
+openapi: 3.1.0
+info:
+  title: MOSTLYVERS API
+  version: 1.0.0
+  description: Contract for the Android reader and Owner dashboard. FREE_LAUNCH grants non-financial entitlements; payment routes remain reserved and fail closed.
+servers:
+  - url: http://localhost:5001/v1
+  - url: https://api.example.com/v1
+tags:
+  - { name: Authentication }
+  - { name: Reader }
+  - { name: Catalog }
+  - { name: Reading }
+  - { name: Billing }
+  - { name: Admin }
+  - { name: Internal }
+paths:
+  /auth/signup:
+    post: { tags: [Authentication], operationId: readerSignup, requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [name, age, gender, email, phone, password, device, otpChallengeId, otp], properties: { name: {type: string}, age: {type: integer}, gender: {type: string}, email: {type: string, format: email}, phone: {type: string}, password: {type: string, format: password}, otpChallengeId: {type: string, format: uuid}, otp: {type: string, pattern: '^[0-9]{6}$'}, device: {type: string, description: JSON-encoded DeviceContext}, profilePicture: {type: string, format: binary} } } } } }, responses: { '201': { $ref: '#/components/responses/ReaderSession' }, default: { $ref: '#/components/responses/Error' } } }
+  /auth/email-otp/request: { post: { tags: [Authentication], operationId: requestSignupOtp, responses: { '202': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } } }
+  /auth/login:
+    post: { tags: [Authentication], operationId: readerLogin, requestBody: { $ref: '#/components/requestBodies/ReaderLogin' }, responses: { '200': { $ref: '#/components/responses/ReaderSession' }, default: { $ref: '#/components/responses/Error' } } }
+  /auth/refresh:
+    post: { tags: [Authentication], operationId: readerRefresh, responses: { '200': { $ref: '#/components/responses/ReaderSession' }, default: { $ref: '#/components/responses/Error' } } }
+  /auth/logout:
+    post: { tags: [Authentication], operationId: readerLogout, responses: { '204': { description: Logged out } } }
+  /auth/password-reset/request:
+    post: { tags: [Authentication], operationId: requestReaderPasswordReset, responses: { '202': { description: Generic accepted response } } }
+  /auth/password-reset/confirm:
+    post: { tags: [Authentication], operationId: confirmReaderPasswordReset, responses: { '204': { description: Password changed }, default: { $ref: '#/components/responses/Error' } } }
+  /account-deletion/request:
+    post: { tags: [Authentication], operationId: requestExternalDeletion, responses: { '202': { description: Generic accepted response } } }
+  /account-deletion/requests/{token}:
+    parameters: [ { $ref: '#/components/parameters/Token' } ]
+    get: { tags: [Authentication], operationId: inspectDeletionRequest, responses: { '200': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } }
+  /account-deletion/requests/{token}/confirm:
+    parameters: [ { $ref: '#/components/parameters/Token' } ]
+    post: { tags: [Authentication], operationId: confirmDeletionRequest, responses: { '202': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } }
+  /app/bootstrap: { get: { tags: [Reader], operationId: bootstrap, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /home: { get: { tags: [Reader], operationId: home, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /me:
+    get: { tags: [Reader], operationId: getReaderProfile, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+    patch: { tags: [Reader], operationId: updateReaderProfile, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } }
+  /me/profile-picture:
+    post: { tags: [Reader], operationId: setReaderPicture, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+    delete: { tags: [Reader], operationId: deleteReaderPicture, security: [ { bearerAuth: [] } ], responses: { '204': { description: Removed } } }
+  /me/device-access: { get: { tags: [Reader], operationId: getDeviceAccess, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /me/device-transfer/free: { post: { tags: [Reader], operationId: transferDeviceFree, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } } }
+  /me/device-transfer/checkouts: { post: { tags: [Billing], operationId: createDeviceTransferCheckout, security: [ { bearerAuth: [] } ], responses: { '503': { $ref: '#/components/responses/PaymentDisabled' } } } }
+  /me/device-transfer/checkouts/{checkoutId}: { parameters: [ { $ref: '#/components/parameters/CheckoutId' } ], get: { tags: [Billing], operationId: getDeviceTransferCheckout, security: [ { bearerAuth: [] } ], responses: { '503': { $ref: '#/components/responses/PaymentDisabled' } } } }
+  /books: { get: { tags: [Catalog], operationId: listBooks, security: [ { bearerAuth: [] } ], parameters: [ {name: query, in: query, schema: {type: string}}, {name: cursor, in: query, schema: {type: string}}, {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}} ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /books/latest: { get: { tags: [Catalog], operationId: latestBooks, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /books/upcoming: { get: { tags: [Catalog], operationId: upcomingBooks, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /books/{bookId}: { parameters: [ { $ref: '#/components/parameters/BookId' } ], get: { tags: [Catalog], operationId: getBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } } }
+  /books/{bookId}/claim: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Catalog], operationId: claimFreeLaunchBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } } }
+  /books/{bookId}/prebook: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Catalog], operationId: prebookFreeLaunchBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } } }
+  /content/about-app: { get: { tags: [Catalog], operationId: aboutApp, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /content/author: { get: { tags: [Catalog], operationId: author, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /content/contact: { get: { tags: [Catalog], operationId: contact, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /checkouts: { post: { tags: [Billing], operationId: createCheckout, security: [ { bearerAuth: [] } ], responses: { '503': { $ref: '#/components/responses/PaymentDisabled' } } } }
+  /checkouts/{checkoutId}:
+    parameters: [ { $ref: '#/components/parameters/CheckoutId' } ]
+    get: { tags: [Billing], operationId: getCheckout, security: [ { bearerAuth: [] } ], responses: { '503': { $ref: '#/components/responses/PaymentDisabled' } } }
+  /checkouts/{checkoutId}/confirm: { parameters: [ { $ref: '#/components/parameters/CheckoutId' } ], post: { tags: [Billing], operationId: confirmCheckout, security: [ { bearerAuth: [] } ], responses: { '503': { $ref: '#/components/responses/PaymentDisabled' } } } }
+  /billing/google-play/reconcile: { post: { tags: [Billing], operationId: reconcileGooglePlay, security: [ { bearerAuth: [] } ], responses: { '503': { $ref: '#/components/responses/PaymentDisabled' } } } }
+  /me/transactions: { get: { tags: [Reader], operationId: readerTransactions, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /me/prebooks: { get: { tags: [Reader], operationId: readerPrebooks, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /me/books: { get: { tags: [Reading], operationId: ownedBooks, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /books/{bookId}/reading-sessions: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Reading], operationId: createReadingSession, security: [ { bearerAuth: [] } ], responses: { '201': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } } }
+  /reading-sessions/{sessionId}/resources/{resourceId}: { parameters: [ {name: sessionId, in: path, required: true, schema: {type: string, format: uuid}}, {name: resourceId, in: path, required: true, schema: {type: string}} ], get: { tags: [Reading], operationId: readResource, security: [ { bearerAuth: [] } ], responses: { '200': { description: Protected EPUB resource }, default: { $ref: '#/components/responses/Error' } } } }
+  /me/books/{bookId}/progress:
+    parameters: [ { $ref: '#/components/parameters/BookId' } ]
+    get: { tags: [Reading], operationId: getProgress, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, '204': {description: No progress} } }
+    put: { tags: [Reading], operationId: putProgress, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } } }
+  /me/books/{bookId}/bookmark:
+    parameters: [ { $ref: '#/components/parameters/BookId' } ]
+    put: { tags: [Reading], operationId: putBookmark, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+    delete: { tags: [Reading], operationId: deleteBookmark, security: [ { bearerAuth: [] } ], responses: { '204': {description: Removed} } }
+  /me/books/{bookId}/offline-license: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Reading], operationId: createOfflineLicense, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /me/books/{bookId}/offline-license/renew: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Reading], operationId: renewOfflineLicense, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /me/books/{bookId}/offline-package/{version}: { parameters: [ { $ref: '#/components/parameters/BookId' }, {name: version, in: path, required: true, schema: {type: integer}} ], get: { tags: [Reading], operationId: downloadOfflinePackage, security: [ { bearerAuth: [] } ], responses: { '307': {description: Short-lived signed R2 redirect}, default: { $ref: '#/components/responses/Error' } } } }
+  /me/downloads:
+    get: { tags: [Reading], operationId: downloads, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } }
+  /me/downloads/{bookId}: { parameters: [ { $ref: '#/components/parameters/BookId' } ], delete: { tags: [Reading], operationId: deleteDownload, security: [ { bearerAuth: [] } ], responses: { '204': {description: Local record removed} } } }
+  /me/books/{bookId}/feedback:
+    parameters: [ { $ref: '#/components/parameters/BookId' } ]
+    get: { tags: [Reader], operationId: getFeedback, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' }, '204': {description: No feedback} } }
+    post: { tags: [Reader], operationId: createFeedback, security: [ { bearerAuth: [] } ], responses: { '201': { $ref: '#/components/responses/Object' } } }
+    patch: { tags: [Reader], operationId: updateFeedback, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+  /youtube-assets: { get: { tags: [Reader], operationId: youtubeAssets, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /books/{bookId}/youtube-asset: { parameters: [ { $ref: '#/components/parameters/BookId' } ], get: { tags: [Reader], operationId: youtubeAsset, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /me/account-deletion/request: { post: { tags: [Reader], operationId: requestAuthenticatedDeletion, security: [ { bearerAuth: [] } ], responses: { '202': {description: Accepted} } } }
+  /me/push-tokens: { post: { tags: [Reader], operationId: registerPushToken, security: [ { bearerAuth: [] } ], responses: { '204': {description: Registered} } }, delete: { tags: [Reader], operationId: unregisterPushToken, security: [ { bearerAuth: [] } ], responses: { '204': {description: Disabled} } } }
+  /me/notifications: { get: { tags: [Reader], operationId: readerNotifications, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /me/notifications/read-all: { post: { tags: [Reader], operationId: readAllNotifications, security: [ { bearerAuth: [] } ], responses: { '204': {description: Read} } } }
+  /me/notifications/{notificationId}/read: { parameters: [ {name: notificationId, in: path, required: true, schema: {type: string, format: uuid}} ], post: { tags: [Reader], operationId: readNotification, security: [ { bearerAuth: [] } ], responses: { '204': {description: Read} } } }
+  /admin/auth/login: { post: { tags: [Authentication], operationId: adminLogin, responses: { '200': { $ref: '#/components/responses/AdminSession' }, default: { $ref: '#/components/responses/Error' } } } }
+  /admin/auth/refresh: { post: { tags: [Authentication], operationId: adminRefresh, responses: { '200': { $ref: '#/components/responses/AdminSession' } } } }
+  /admin/auth/logout: { post: { tags: [Authentication], operationId: adminLogout, responses: { '204': {description: Logged out} } } }
+  /admin/auth/password-reset/request: { post: { tags: [Authentication], operationId: requestAdminPasswordReset, responses: { '202': {description: Generic accepted response} } } }
+  /admin/auth/password-reset/confirm: { post: { tags: [Authentication], operationId: confirmAdminPasswordReset, responses: { '204': {description: Password changed} } } }
+  /admin/dashboard: { get: { tags: [Admin], operationId: adminDashboard, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/me:
+    get: { tags: [Admin], operationId: adminMe, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+    patch: { tags: [Admin], operationId: updateAdminMe, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+  /admin/books:
+    get: { tags: [Admin], operationId: adminBooks, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } }
+    post: { tags: [Admin], operationId: createBook, security: [ { bearerAuth: [] } ], responses: { '201': { $ref: '#/components/responses/Object' } } }
+  /admin/books/{bookId}:
+    parameters: [ { $ref: '#/components/parameters/BookId' } ]
+    get: { tags: [Admin], operationId: adminBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+    patch: { tags: [Admin], operationId: updateBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+    delete: { tags: [Admin], operationId: deleteDraftBook, security: [ { bearerAuth: [] } ], responses: { '204': {description: Deleted} } }
+  /admin/books/{bookId}/publish: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Admin], operationId: publishBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/books/{bookId}/archive: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Admin], operationId: archiveBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/books/{bookId}/sales: { parameters: [ { $ref: '#/components/parameters/BookId' } ], get: { tags: [Admin], operationId: bookSales, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/uploads: { post: { tags: [Admin], operationId: createUpload, security: [ { bearerAuth: [] } ], responses: { '201': { $ref: '#/components/responses/Object' } } } }
+  /admin/media: { post: { tags: [Admin], operationId: uploadImage, security: [ { bearerAuth: [] } ], responses: { '201': { $ref: '#/components/responses/Object' } } } }
+  /admin/uploads/{uploadId}/parts: { parameters: [ {name: uploadId, in: path, required: true, schema: {type: string, format: uuid}} ], post: { tags: [Admin], operationId: signUploadParts, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/uploads/{uploadId}/complete: { parameters: [ {name: uploadId, in: path, required: true, schema: {type: string, format: uuid}} ], post: { tags: [Admin], operationId: completeUpload, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/uploads/{uploadId}: { parameters: [ {name: uploadId, in: path, required: true, schema: {type: string, format: uuid}} ], delete: { tags: [Admin], operationId: abortUpload, security: [ { bearerAuth: [] } ], responses: { '204': {description: Upload aborted} } } }
+  /admin/operations/{operationId}: { parameters: [ {name: operationId, in: path, required: true, schema: {type: string, format: uuid}} ], get: { tags: [Admin], operationId: operation, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/readers: { get: { tags: [Admin], operationId: adminReaders, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /admin/readers/{readerId}: { parameters: [ {name: readerId, in: path, required: true, schema: {type: string, format: uuid}} ], get: { tags: [Admin], operationId: adminReader, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/transactions: { get: { tags: [Admin], operationId: adminTransactions, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /admin/transactions/{transactionId}: { parameters: [ {name: transactionId, in: path, required: true, schema: {type: string, format: uuid}} ], get: { tags: [Admin], operationId: adminTransaction, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/sales/summary: { get: { tags: [Admin], operationId: salesSummary, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/sales/timeseries: { get: { tags: [Admin], operationId: salesTimeseries, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/sales/export: { get: { tags: [Admin], operationId: salesExport, security: [ { bearerAuth: [] } ], responses: { '200': {description: CSV export, content: {text/csv: {schema: {type: string}}}} } } }
+  /admin/feedback: { get: { tags: [Admin], operationId: adminFeedback, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /admin/feedback/{feedbackId}: { parameters: [ {name: feedbackId, in: path, required: true, schema: {type: string, format: uuid}} ], get: { tags: [Admin], operationId: adminFeedbackItem, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/youtube-assets: { get: { tags: [Admin], operationId: adminYoutubeAssets, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /admin/books/{bookId}/youtube-asset:
+    parameters: [ { $ref: '#/components/parameters/BookId' } ]
+    put: { tags: [Admin], operationId: putYoutubeAsset, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
+    delete: { tags: [Admin], operationId: removeYoutubeAsset, security: [ { bearerAuth: [] } ], responses: { '204': {description: Removed} } }
+  /admin/content/author: { get: { tags: [Admin], operationId: adminAuthor, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }, patch: { tags: [Admin], operationId: updateAuthor, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/content/contact: { get: { tags: [Admin], operationId: adminContact, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }, patch: { tags: [Admin], operationId: updateContact, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/content/about-app: { get: { tags: [Admin], operationId: adminAbout, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }, patch: { tags: [Admin], operationId: updateAbout, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/settings/app: { get: { tags: [Admin], operationId: adminSettings, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }, patch: { tags: [Admin], operationId: updateSettings, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/settings/billing: { get: { tags: [Admin], operationId: billingSettings, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/payment-status: { get: { tags: [Admin], operationId: paymentStatus, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/settlement: { get: { tags: [Admin], operationId: settlement, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+  /admin/settlement/portal-session: { post: { tags: [Admin], operationId: settlementPortal, security: [ { bearerAuth: [] } ], responses: { '503': { $ref: '#/components/responses/PaymentDisabled' } } } }
+  /admin/notifications: { get: { tags: [Admin], operationId: adminNotifications, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } }, post: { tags: [Admin], operationId: sendNotification, security: [ { bearerAuth: [] } ], responses: { '201': { $ref: '#/components/responses/Object' } } } }
+  /admin/jobs: { get: { tags: [Admin], operationId: adminJobs, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } } }
+  /internal/jobs/run: { post: { tags: [Internal], operationId: runJobs, security: [ { internalToken: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    internalToken: { type: http, scheme: bearer }
+  parameters:
+    BookId: { name: bookId, in: path, required: true, schema: {type: string, format: uuid} }
+    CheckoutId: { name: checkoutId, in: path, required: true, schema: {type: string, format: uuid} }
+    Token: { name: token, in: path, required: true, schema: {type: string} }
+  requestBodies:
+    ReaderLogin: { required: true, content: { application/json: { schema: { type: object, required: [email, password, device], properties: { email: {type: string, format: email}, password: {type: string, format: password}, device: {$ref: '#/components/schemas/DeviceContext'} } } } } }
+  responses:
+    Object: { description: Success, content: { application/json: { schema: {type: object, additionalProperties: true} } } }
+    Page: { description: Cursor page, content: { application/json: { schema: {$ref: '#/components/schemas/CursorPage'} } } }
+    ReaderSession: { description: Reader session, content: { application/json: { schema: {$ref: '#/components/schemas/ReaderSession'} } } }
+    AdminSession: { description: Owner session, content: { application/json: { schema: {type: object, additionalProperties: true} } } }
+    Error: { description: API error, content: { application/json: { schema: {$ref: '#/components/schemas/ErrorEnvelope'} } } }
+    PaymentDisabled: { description: Payment provider is disabled, content: { application/json: { schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: PAYMENT_NOT_CONFIGURED, message: Payments are not configured yet., requestId: 018f0000-0000-7000-8000-000000000000}} } } }
+  schemas:
+    Money: { type: object, required: [amountMinor, currency], properties: {amountMinor: {type: integer, format: int64}, currency: {type: string, pattern: '^[A-Z]{3}$'}} }
+    DeviceContext: { type: object, required: [installationId, displayName, platform, osVersion, appVersion, packageName], properties: {installationId: {type: string}, displayName: {type: string}, platform: {type: string, const: ANDROID}, osVersion: {type: string}, appVersion: {type: string}, packageName: {type: string}, integrityToken: {type: string}, integrityRequestHash: {type: string}} }
+    ReaderSession: { type: object, required: [accessToken, accessTokenExpiresAt, refreshToken, reader, accessMode, deviceAccess], properties: {accessToken: {type: string}, accessTokenExpiresAt: {type: string, format: date-time}, refreshToken: {type: string}, reader: {type: object, additionalProperties: true}, accessMode: {enum: [FULL, BROWSE_ONLY]}, deviceAccess: {type: object, additionalProperties: true}} }
+    CursorPage: { type: object, required: [items], properties: {items: {type: array, items: {}}, nextCursor: {type: [string, 'null']}, total: {type: integer}} }
+    ErrorEnvelope: { type: object, required: [error], properties: {error: {type: object, required: [code, message, requestId], properties: {code: {type: string}, message: {type: string}, requestId: {type: string}, details: {type: object, additionalProperties: true}}}} }

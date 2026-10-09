@@ -1,0 +1,62 @@
+name: encrypted-database-backup
+on:
+  schedule:
+    - cron: '20 19 * * *'
+  workflow_dispatch:
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    services:
+      restore-postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: restore, POSTGRES_PASSWORD: restore, POSTGRES_DB: restore }
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd "pg_isready -U restore"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      BACKUP_BUCKET: ${{ secrets.R2_PRIVATE_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Create encrypted backup
+        id: backup
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL" > database.dump
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_PASSPHRASE -in database.dump -out database.dump.enc
+          daily="backups/daily/mostlyvers-${stamp}.dump.enc"
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp database.dump.enc "s3://${BACKUP_BUCKET}/${daily}"
+          if [ "$(date -u +%u)" = "7" ]; then
+            aws --endpoint-url "$R2_ENDPOINT" s3 cp database.dump.enc "s3://${BACKUP_BUCKET}/backups/weekly/mostlyvers-${stamp}.dump.enc"
+          fi
+      - name: Enforce retention
+        run: |
+          set -euo pipefail
+          prune() {
+            prefix="$1"; keep="$2"
+            aws --endpoint-url "$R2_ENDPOINT" s3api list-objects-v2 --bucket "$BACKUP_BUCKET" --prefix "$prefix" \
+              | jq -r --argjson keep "$keep" '.Contents // [] | sort_by(.LastModified) | reverse | .[$keep:][]?.Key' \
+              | while IFS= read -r key; do aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://${BACKUP_BUCKET}/${key}"; done
+          }
+          prune backups/daily/ 7
+          prune backups/weekly/ 4
+      - name: Monthly restore validation
+        env:
+          PGPASSWORD: restore
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$(date -u +%d)" != "01" ] && [ "$EVENT_NAME" != "workflow_dispatch" ]; then exit 0; fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE -in database.dump.enc -out database.restore.dump
+          pg_restore --exit-on-error --no-owner --no-acl --dbname 'postgres://restore@localhost:55432/restore?sslmode=disable' database.restore.dump
+          psql 'postgres://restore@localhost:55432/restore?sslmode=disable' -c 'SELECT count(*) AS migration_count FROM goose_db_version;'

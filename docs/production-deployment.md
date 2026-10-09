@@ -1,0 +1,28 @@
+# Production deployment
+
+Secrets must be entered directly in Render, Cloudflare Pages, EAS, or GitHub. Never add them to a repository or send them through chat.
+
+## Provisioning order
+
+1. Create Neon PostgreSQL and copy the pooled TLS connection string to Render as `DATABASE_URL`.
+2. Create a private Cloudflare R2 bucket and an object read/write token. Set `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` in Render.
+3. Create a Cloudinary product environment. Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in Render.
+4. Verify the sending domain in Resend. Set `RESEND_API_KEY` and `EMAIL_FROM` in Render.
+5. Create a Google Cloud service account allowed to decode Play Integrity verdicts. Base64-encode the entire JSON file locally and store only that encoded value as `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` in Render. Delete the downloaded JSON after confirming deployment.
+6. Generate a 64-byte Ed25519 private key, a 32-byte AES content key, and a random internal job token. Store them as `ACCESS_TOKEN_PRIVATE_KEY_BASE64`, `CONTENT_KEY_ENCRYPTION_KEY_BASE64`, and `INTERNAL_JOB_TOKEN`.
+7. Set `PUBLIC_BASE_URL` to the Render origin and `ADMIN_ORIGIN` to the final Cloudflare Pages origin.
+8. Deploy the Render Blueprint. Confirm `/health/live`, `/health/ready`, and `/version` before creating the Owner.
+9. Run the one-time Owner seed command against production with `OWNER_*` values supplied only to that process.
+10. In Cloudflare Pages set `VITE_API_URL=/v1` at build time and `API_ORIGIN` to the Render origin for the Pages Function.
+11. In GitHub set backend repository secrets `RENDER_DEPLOY_HOOK`, `API_ORIGIN`, `INTERNAL_JOB_TOKEN`, `DATABASE_URL`, `R2_ENDPOINT`, `R2_PRIVATE_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `BACKUP_PASSPHRASE`.
+12. Configure the EAS project and Android FCM V1 credentials. Set Android build values `EXPO_PUBLIC_API_URL=https://<admin-pages-domain>/v1`, `EXPO_PUBLIC_EAS_PROJECT_ID`, and `EXPO_PUBLIC_GOOGLE_CLOUD_PROJECT_NUMBER`.
+
+## Acceptance gate
+
+- Upload one cover image and one EPUB in the Owner dashboard.
+- Observe the EPUB job transition from `PENDING` to `COMPLETED`.
+- Publish the book and confirm it appears in Android after refresh.
+- Create a reader through email OTP, claim the book, read online, download it, reopen offline, save progress, and submit feedback.
+- Send an Owner notification and confirm both the inbox item and push delivery.
+- Confirm `/v1/checkouts` returns `PAYMENT_NOT_CONFIGURED` and that no transaction is created.
+- Run a backup workflow manually and complete a restore validation before launch.
