@@ -163,26 +163,39 @@ func (s *Server) revenueSeries(r *http.Request) []map[string]any {
 	}
 	return out
 }
-func (s *Server) topBooks(r *http.Request, limit int) []map[string]any {
-	rows, err := s.store.Pool.Query(r.Context(), `SELECT b.id,b.title,b.cover_object_key,count(t.id),COALESCE(sum(t.amount_minor),0),COALESCE(max(t.currency),'INR') FROM books b LEFT JOIN transactions t ON t.book_id=b.id AND t.type='BOOK_PURCHASE' AND t.status='COMPLETED' GROUP BY b.id ORDER BY count(t.id) DESC,b.title LIMIT $1`, limit)
+func (s *Server) topBooks(r *http.Request, limit int) []adminTopBook {
+	rows, err := s.store.Pool.Query(r.Context(), `SELECT b.id,b.title,b.cover_object_key,b.price_minor,b.currency,count(t.id),COALESCE(sum(t.amount_minor),0) FROM books b LEFT JOIN transactions t ON t.book_id=b.id AND t.type='BOOK_PURCHASE' AND t.status='COMPLETED' GROUP BY b.id ORDER BY count(t.id) DESC,b.title LIMIT $1`, limit)
 	if err != nil {
-		return []map[string]any{}
+		return []adminTopBook{}
 	}
 	defer rows.Close()
-	out := []map[string]any{}
+	out := []adminTopBook{}
 	for rows.Next() {
 		var id, title, currency string
 		var cover *string
 		var count int
-		var revenue int64
-		_ = rows.Scan(&id, &title, &cover, &count, &revenue, &currency)
+		var price, revenue int64
+		_ = rows.Scan(&id, &title, &cover, &price, &currency, &count, &revenue)
 		coverURL := ""
 		if cover != nil {
 			coverURL = s.imageURL(*cover)
 		}
-		out = append(out, map[string]any{"id": id, "title": title, "coverUrl": coverURL, "purchases": count, "revenue": domain.Money{AmountMinor: revenue, Currency: currency}})
+		out = append(out, buildTopBook(id, title, coverURL, count, price, revenue, currency))
 	}
 	return out
+}
+
+type adminTopBook struct {
+	ID        string       `json:"id"`
+	Title     string       `json:"title"`
+	CoverURL  string       `json:"coverUrl"`
+	Purchases int          `json:"purchases"`
+	Price     domain.Money `json:"price"`
+	Revenue   domain.Money `json:"revenue"`
+}
+
+func buildTopBook(id, title, coverURL string, purchases int, priceMinor, revenueMinor int64, currency string) adminTopBook {
+	return adminTopBook{ID: id, Title: title, CoverURL: coverURL, Purchases: purchases, Price: domain.Money{AmountMinor: priceMinor, Currency: currency}, Revenue: domain.Money{AmountMinor: revenueMinor, Currency: currency}}
 }
 
 type adminBookInput struct {
