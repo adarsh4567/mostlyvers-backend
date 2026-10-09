@@ -2,44 +2,49 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"strings"
 
 	"github.com/mostlyvers/backend/db/migrations"
 	"github.com/mostlyvers/backend/internal/auth"
-	"github.com/mostlyvers/backend/internal/config"
 	"github.com/mostlyvers/backend/internal/store"
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
+	if err := run(context.Background()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func run(ctx context.Context) error {
 	email := strings.TrimSpace(os.Getenv("OWNER_EMAIL"))
 	password := os.Getenv("OWNER_PASSWORD")
 	name := strings.TrimSpace(os.Getenv("OWNER_NAME"))
 	phone := strings.TrimSpace(os.Getenv("OWNER_PHONE"))
 	if email == "" || password == "" || name == "" || phone == "" {
-		log.Fatal("OWNER_EMAIL, OWNER_PASSWORD, OWNER_NAME and OWNER_PHONE are required")
+		return errors.New("OWNER_EMAIL, OWNER_PASSWORD, OWNER_NAME and OWNER_PHONE are required")
 	}
-	ctx := context.Background()
-	if err = migrations.Run(ctx, cfg.DatabaseURL, "up"); err != nil {
-		log.Fatal(err)
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if databaseURL == "" {
+		return errors.New("DATABASE_URL is required")
 	}
-	database, err := store.Open(ctx, cfg.DatabaseURL)
+	if err := migrations.Run(ctx, databaseURL, "up"); err != nil {
+		return err
+	}
+	database, err := store.Open(ctx, databaseURL)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer database.Close()
 	hash, err := auth.HashPassword(password)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	tx, err := database.Pool.Begin(ctx)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer tx.Rollback(ctx)
 	id := store.NewID()
@@ -48,10 +53,11 @@ func main() {
 		_, err = tx.Exec(ctx, `INSERT INTO owner_profiles(account_id,name,phone) VALUES($1,$2,$3)`, id, name, phone)
 	}
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	log.Printf("owner %s created", email)
+	return nil
 }
