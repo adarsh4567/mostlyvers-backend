@@ -11,4 +11,12 @@ jobs:
         env:
           API_ORIGIN: ${{ secrets.API_ORIGIN }}
           INTERNAL_JOB_TOKEN: ${{ secrets.INTERNAL_JOB_TOKEN }}
-        run: curl --retry 4 --retry-all-errors --max-time 720 --fail --silent --show-error --request POST --header "Authorization: Bearer ${INTERNAL_JOB_TOKEN}" "${API_ORIGIN%/}/v1/internal/jobs/run"
+        run: |
+          if [ -z "$API_ORIGIN" ] || [ -z "$INTERNAL_JOB_TOKEN" ]; then
+            echo "API_ORIGIN and INTERNAL_JOB_TOKEN are not configured; skipping."
+            exit 0
+          fi
+          curl --retry 4 --retry-all-errors --max-time 720 --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${INTERNAL_JOB_TOKEN}" \
+            "${API_ORIGIN%/}/v1/internal/jobs/run"
