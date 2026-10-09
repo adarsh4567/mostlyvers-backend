@@ -203,6 +203,37 @@ load_env_safely() {
   done < "$ENV_FILE"
 }
 
+seed_owner() {
+  if [[ ! -f "$ENV_FILE" ]]; then
+    warn "$ENV_FILE is missing. Run the full deployment wizard first."
+    exit 1
+  fi
+  say "This runs the one-time seed command locally against Neon. The password is never written to disk."
+  ask OWNER_NAME "Owner display name:"
+  ask OWNER_EMAIL "Owner email:"
+  ask OWNER_PHONE "Owner phone (include country code):"
+  ask_secret OWNER_PASSWORD "Owner password:"
+  for pair in "OWNER_NAME:$OWNER_NAME" "OWNER_EMAIL:$OWNER_EMAIL" "OWNER_PHONE:$OWNER_PHONE" "OWNER_PASSWORD:$OWNER_PASSWORD"; do
+    require_value "${pair%%:*}" "${pair#*:}"
+  done
+  if confirm "Create this production Owner now? This should be run only once."; then
+    load_env_safely
+    export OWNER_NAME OWNER_EMAIL OWNER_PHONE OWNER_PASSWORD
+    GOCACHE="${TMPDIR:-/tmp}/mostlyvers-seed-cache" go run ./cmd/seed
+  else
+    SKIPPED+=("production Owner seed")
+  fi
+}
+
+if [[ "${1:-}" == "--seed-owner-only" ]]; then
+  TOTAL_STAGES=1
+  banner "MOSTLYVERS · Create production Owner"
+  stage "Create the initial Owner"
+  seed_owner
+  finish
+  exit 0
+fi
+
 banner "MOSTLYVERS backend · Render deployment"
 
 stage "Neon PostgreSQL"
@@ -328,21 +359,7 @@ curl --retry 5 --retry-delay 10 --retry-all-errors --max-time 180 --fail --silen
 printf '\n'
 
 stage "Create the initial Owner"
-say "This runs the one-time seed command locally against Neon. The password is never written to disk."
-ask OWNER_NAME "Owner display name:"
-ask OWNER_EMAIL "Owner email:"
-ask OWNER_PHONE "Owner phone (include country code):"
-ask_secret OWNER_PASSWORD "Owner password:"
-for pair in "OWNER_NAME:$OWNER_NAME" "OWNER_EMAIL:$OWNER_EMAIL" "OWNER_PHONE:$OWNER_PHONE" "OWNER_PASSWORD:$OWNER_PASSWORD"; do
-  require_value "${pair%%:*}" "${pair#*:}"
-done
-if confirm "Create this production Owner now? This should be run only once."; then
-  load_env_safely
-  export OWNER_NAME OWNER_EMAIL OWNER_PHONE OWNER_PASSWORD
-  GOCACHE="${TMPDIR:-/tmp}/mostlyvers-seed-cache" go run ./cmd/seed
-else
-  SKIPPED+=("production Owner seed")
-fi
+seed_owner
 
 stage "GitHub deployment and job automation"
 say "The wizard will store only workflow-required values in GitHub Actions secrets."
