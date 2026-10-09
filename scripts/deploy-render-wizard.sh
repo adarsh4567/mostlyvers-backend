@@ -268,13 +268,18 @@ write_env EMAIL_FROM "$EMAIL_FROM"
 
 stage "Production origins and cryptographic secrets"
 say "The admin origin must be an exact HTTPS origin, with no path or trailing slash."
-ask ADMIN_ORIGIN "Cloudflare Pages admin origin (https://PROJECT.pages.dev):"
+say "If Cloudflare Pages is not deployed yet, enter https://bootstrap.invalid for the first Render deployment."
+say "After Pages gives you its real URL, replace this value in Render and redeploy the backend."
+ask ADMIN_ORIGIN "Cloudflare Pages origin, or https://bootstrap.invalid for bootstrapping:"
 require_value ADMIN_ORIGIN "$ADMIN_ORIGIN"
 if [[ "$ADMIN_ORIGIN" != https://* ]]; then
   warn "ADMIN_ORIGIN must start with https://"
   exit 1
 fi
 write_env ADMIN_ORIGIN "${ADMIN_ORIGIN%/}"
+if [[ "$ADMIN_ORIGIN" == "https://bootstrap.invalid" ]]; then
+  warn "Bootstrap origin selected. Admin login will remain blocked until ADMIN_ORIGIN is replaced in Render."
+fi
 
 generated=$(GOCACHE="${TMPDIR:-/tmp}/mostlyvers-keygen-cache" go run ./cmd/keygen)
 for key in ACCESS_TOKEN_PRIVATE_KEY_BASE64 CONTENT_KEY_ENCRYPTION_KEY_BASE64 INTERNAL_JOB_TOKEN BACKUP_PASSPHRASE; do
@@ -360,6 +365,7 @@ set_secret BACKUP_PASSPHRASE "$BACKUP_PASSPHRASE"
 stage "Final backend smoke checks"
 say "Confirm the service is healthy before connecting the admin dashboard and Android app."
 step "In Render Logs, confirm migrations completed and the API is listening without configuration errors."
+step "After Cloudflare Pages deploys, replace bootstrap.invalid with the exact https://PROJECT.pages.dev URL in Render → Environment → ADMIN_ORIGIN, then Save and deploy."
 step "In Supabase Storage, keep the bucket private. Do not create a public read policy."
 step "In Resend, confirm the sender domain remains verified."
 step "Run the GitHub run-background-jobs workflow manually and confirm it succeeds."

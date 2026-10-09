@@ -10,7 +10,7 @@ Secrets must be entered directly in Render, Cloudflare Pages, EAS, or GitHub. Ne
 4. Verify the sending domain in Resend. Set `RESEND_API_KEY` and `EMAIL_FROM` in Render.
 5. Keep `PLAY_INTEGRITY_REQUIRED=false` for the initial backend smoke test. Before the Play Store release, create a Google Cloud service account allowed to decode Play Integrity verdicts, set `GOOGLE_CLOUD_PROJECT_NUMBER` and base64-encoded `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` in Render, then enable enforcement.
 6. Generate a 64-byte Ed25519 private key, a 32-byte AES content key, and a random internal job token. Store them as `ACCESS_TOKEN_PRIVATE_KEY_BASE64`, `CONTENT_KEY_ENCRYPTION_KEY_BASE64`, and `INTERNAL_JOB_TOKEN`.
-7. Set `ADMIN_ORIGIN` to the final Cloudflare Pages origin. On Render, `PUBLIC_BASE_URL` is derived securely from `RENDER_EXTERNAL_HOSTNAME`; set it explicitly only when attaching a custom API domain.
+7. Set `ADMIN_ORIGIN` to the final Cloudflare Pages origin. If the backend must deploy first, use `https://bootstrap.invalid` temporarily, deploy Pages with the resulting Render origin, then immediately replace `ADMIN_ORIGIN` with the exact `https://<project>.pages.dev` origin and redeploy. On Render, `PUBLIC_BASE_URL` is derived securely from `RENDER_EXTERNAL_HOSTNAME`; set it explicitly only when attaching a custom API domain.
 8. Deploy the Render Blueprint. Confirm `/health/live`, `/health/ready`, and `/version` before creating the Owner.
 9. Run the one-time Owner seed command against production with `OWNER_*` values supplied only to that process.
 10. In Cloudflare Pages set `VITE_API_URL=/v1` at build time and `API_ORIGIN` to the Render origin for the Pages Function.
