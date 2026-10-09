@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,19 @@ func TestProcessEPUBRejectsRemoteResources(t *testing.T) {
 	_, err := ProcessEPUB(testEPUB(t, `<html><body><img src="https://example.com/a.jpg"/></body></html>`))
 	if err == nil {
 		t.Fatal("expected remote resource rejection")
+	}
+}
+func TestProcessEPUBRemovesRemoteAnchorWithoutRejectingBook(t *testing.T) {
+	epub, err := ProcessEPUB(testEPUB(t, `<html><body><a href="https://example.com/publisher">Publisher</a></body></html>`))
+	if err != nil {
+		t.Fatalf("remote hyperlink should be sanitized, not reject the EPUB: %v", err)
+	}
+	chapter := strings.ToLower(string(epub.Resources[0].Data))
+	if strings.Contains(chapter, "https://example.com") {
+		t.Fatal("remote hyperlink survived sanitization")
+	}
+	if !strings.Contains(chapter, "publisher") {
+		t.Fatal("anchor text was removed with its remote destination")
 	}
 }
 func TestProcessEPUBAllowsStandardXHTMLNamespace(t *testing.T) {

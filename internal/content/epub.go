@@ -192,6 +192,11 @@ func sanitizeHTML(source []byte, documentPath string, files map[string]*zip.File
 				for _, attr := range child.Attr {
 					name := strings.ToLower(attr.Key)
 					value := strings.TrimSpace(strings.ToLower(attr.Val))
+					if name == "href" && child.Data == "a" && (strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")) {
+						// Preserve the book's visible link text without allowing the
+						// protected reader to navigate to an untrusted remote origin.
+						continue
+					}
 					if (name == "src" || name == "href") && (strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")) {
 						remoteResource = true
 						continue
