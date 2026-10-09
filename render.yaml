@@ -18,14 +18,12 @@ services:
       - key: ADMIN_COOKIE_SECURE
         value: "true"
       - key: PLAY_INTEGRITY_REQUIRED
-        value: "true"
+        value: "false"
       - key: ANDROID_PACKAGE_NAME
         value: com.mostlyvers.app
       - key: READER_RESET_URL
         value: mostlyvers://reset-password
       - key: DATABASE_URL
-        sync: false
-      - key: PUBLIC_BASE_URL
         sync: false
       - key: ADMIN_ORIGIN
         sync: false
@@ -60,10 +58,6 @@ services:
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
-        sync: false
-      - key: GOOGLE_CLOUD_PROJECT_NUMBER
-        sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
         sync: false
       - key: INTERNAL_JOB_TOKEN
         sync: false

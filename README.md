@@ -45,6 +45,14 @@ The API contract is [openapi/openapi.yaml](openapi/openapi.yaml). Migrations are
 
 ## Render deployment outline
 
+For an interactive, secret-safe walkthrough, run:
+
+```bash
+./scripts/deploy-render-wizard.sh
+```
+
+The wizard writes provider values only to the git-ignored `.env.render.local`, opens the required dashboards, verifies the deployed health endpoints, seeds the initial Owner, and configures the GitHub Actions secrets used by this repository.
+
 1. Create Neon PostgreSQL and use its pooled TLS URL for `DATABASE_URL`.
 2. Create one private Supabase Storage bucket, enable its S3 protocol, and generate server-side S3 access keys. EPUBs, protected resources, offline packages and backups stay there. The legacy `R2_*` variables remain supported, but production uses the provider-neutral `STORAGE_*` names.
 3. Create a Cloudinary product environment for cover, author and profile images.

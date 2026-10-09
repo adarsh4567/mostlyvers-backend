@@ -57,3 +57,14 @@ func TestRenderPortAndFreeLaunchMode(t *testing.T) {
 		t.Fatalf("unexpected Render config: port=%s mode=%s", cfg.Port, cfg.BillingMode)
 	}
 }
+
+func TestProductionUsesRenderExternalHostname(t *testing.T) {
+	t.Setenv("PUBLIC_BASE_URL", "")
+	t.Setenv("RENDER_EXTERNAL_HOSTNAME", "mostlyvers-api.onrender.com")
+	if got := resolvePublicBaseURL("production"); got != "https://mostlyvers-api.onrender.com" {
+		t.Fatalf("production PublicBaseURL = %q", got)
+	}
+	if got := resolvePublicBaseURL("development"); got != "http://localhost:5001" {
+		t.Fatalf("development PublicBaseURL = %q", got)
+	}
+}

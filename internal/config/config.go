@@ -55,6 +55,8 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	environment := env("APP_ENV", "development")
+	publicBaseURL := resolvePublicBaseURL(environment)
 	accessTTL, err := time.ParseDuration(env("ACCESS_TOKEN_TTL", "15m"))
 	if err != nil {
 		return Config{}, fmt.Errorf("ACCESS_TOKEN_TTL: %w", err)
@@ -88,7 +90,7 @@ func Load() (Config, error) {
 		return Config{}, errors.New("MAX_EPUB_UPLOAD_BYTES must be a positive integer")
 	}
 	c := Config{
-		Environment: env("APP_ENV", "development"), Port: env("HTTP_PORT", env("PORT", "5001")), PublicBaseURL: strings.TrimRight(env("PUBLIC_BASE_URL", "http://localhost:5001"), "/"),
+		Environment: environment, Port: env("HTTP_PORT", env("PORT", "5001")), PublicBaseURL: publicBaseURL,
 		AdminOrigin: strings.TrimRight(env("ADMIN_ORIGIN", "http://localhost:5174"), "/"), DatabaseURL: os.Getenv("DATABASE_URL"), AccessPrivateKey: privateKey, AccessPublicKey: publicKey,
 		AccessTTL: accessTTL, RefreshTTL: refreshTTL, AdminCookieSecure: boolEnv("ADMIN_COOKIE_SECURE", false), R2Endpoint: preferredEnv("STORAGE_ENDPOINT", "R2_ENDPOINT"), R2PresignEndpoint: preferredEnv("STORAGE_PRESIGN_ENDPOINT", "R2_PRESIGN_ENDPOINT"), R2Region: preferredEnvDefault("STORAGE_REGION", "R2_REGION", "auto"),
 		R2Bucket: preferredEnvDefault("STORAGE_BUCKET", "R2_BUCKET", "mostlyvers-private"), R2PublicBucket: preferredEnvDefault("STORAGE_PUBLIC_BUCKET", "R2_PUBLIC_BUCKET", "mostlyvers-public"), R2AccessKey: preferredEnv("STORAGE_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"), R2SecretKey: preferredEnv("STORAGE_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
@@ -183,6 +185,16 @@ func preferredEnvDefault(primary, legacy, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func resolvePublicBaseURL(environment string) string {
+	if value := strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"); value != "" {
+		return value
+	}
+	if renderHost := strings.TrimSpace(os.Getenv("RENDER_EXTERNAL_HOSTNAME")); environment == "production" && renderHost != "" {
+		return "https://" + renderHost
+	}
+	return "http://localhost:5001"
 }
 func boolEnv(name string, fallback bool) bool {
 	value := strings.TrimSpace(os.Getenv(name))
