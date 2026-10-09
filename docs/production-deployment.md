@@ -5,7 +5,7 @@ Secrets must be entered directly in Render, Cloudflare Pages, EAS, or GitHub. Ne
 ## Provisioning order
 
 1. Create Neon PostgreSQL and copy the pooled TLS connection string to Render as `DATABASE_URL`.
-2. Create a private Cloudflare R2 bucket and an object read/write token. Set `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` in Render.
+2. Create a private Supabase Storage bucket, enable S3 access, and generate server-side access keys. Set `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_PUBLIC_BUCKET` (the same private bucket), `STORAGE_ACCESS_KEY_ID`, and `STORAGE_SECRET_ACCESS_KEY` in Render. The endpoint is `https://<project-ref>.storage.supabase.co/storage/v1/s3`. Free-plan EPUB uploads are limited to 50 MiB.
 3. Create a Cloudinary product environment. Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in Render.
 4. Verify the sending domain in Resend. Set `RESEND_API_KEY` and `EMAIL_FROM` in Render.
 5. Create a Google Cloud service account allowed to decode Play Integrity verdicts. Base64-encode the entire JSON file locally and store only that encoded value as `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` in Render. Delete the downloaded JSON after confirming deployment.
@@ -14,7 +14,7 @@ Secrets must be entered directly in Render, Cloudflare Pages, EAS, or GitHub. Ne
 8. Deploy the Render Blueprint. Confirm `/health/live`, `/health/ready`, and `/version` before creating the Owner.
 9. Run the one-time Owner seed command against production with `OWNER_*` values supplied only to that process.
 10. In Cloudflare Pages set `VITE_API_URL=/v1` at build time and `API_ORIGIN` to the Render origin for the Pages Function.
-11. In GitHub set backend repository secrets `RENDER_DEPLOY_HOOK`, `API_ORIGIN`, `INTERNAL_JOB_TOKEN`, `DATABASE_URL`, `R2_ENDPOINT`, `R2_PRIVATE_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `BACKUP_PASSPHRASE`.
+11. In GitHub set backend repository secrets `RENDER_DEPLOY_HOOK`, `API_ORIGIN`, `INTERNAL_JOB_TOKEN`, `DATABASE_URL`, `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`, and `BACKUP_PASSPHRASE`.
 12. Configure the EAS project and Android FCM V1 credentials. Set Android build values `EXPO_PUBLIC_API_URL=https://<admin-pages-domain>/v1`, `EXPO_PUBLIC_EAS_PROJECT_ID`, and `EXPO_PUBLIC_GOOGLE_CLOUD_PROJECT_NUMBER`.
 
 ## Acceptance gate

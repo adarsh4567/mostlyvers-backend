@@ -46,7 +46,7 @@ The API contract is [openapi/openapi.yaml](openapi/openapi.yaml). Migrations are
 ## Render deployment outline
 
 1. Create Neon PostgreSQL and use its pooled TLS URL for `DATABASE_URL`.
-2. Create one private R2 bucket and a restricted S3 API token. EPUBs, protected resources, offline packages and backups stay there.
+2. Create one private Supabase Storage bucket, enable its S3 protocol, and generate server-side S3 access keys. EPUBs, protected resources, offline packages and backups stay there. The legacy `R2_*` variables remain supported, but production uses the provider-neutral `STORAGE_*` names.
 3. Create a Cloudinary product environment for cover, author and profile images.
 4. Create a Render Blueprint from `render.yaml`, then enter every `sync: false` value in Render. Render supplies `PORT` automatically.
 5. Configure GitHub `API_ORIGIN` and `INTERNAL_JOB_TOKEN`. The hourly workflow wakes the free service and drains durable jobs; an in-process worker handles jobs while awake.

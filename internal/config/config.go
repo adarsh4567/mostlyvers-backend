@@ -44,6 +44,7 @@ type Config struct {
 	InternalJobToken         string
 	StorageSoftLimit         int64
 	StorageHardLimit         int64
+	MaxEPUBUploadBytes       int64
 	BillingMode              string
 	CloudinaryCloudName      string
 	CloudinaryAPIKey         string
@@ -82,14 +83,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	maxEPUB, err := strconv.ParseInt(env("MAX_EPUB_UPLOAD_BYTES", "104857600"), 10, 64)
+	if err != nil || maxEPUB < 1 {
+		return Config{}, errors.New("MAX_EPUB_UPLOAD_BYTES must be a positive integer")
+	}
 	c := Config{
 		Environment: env("APP_ENV", "development"), Port: env("HTTP_PORT", env("PORT", "5001")), PublicBaseURL: strings.TrimRight(env("PUBLIC_BASE_URL", "http://localhost:5001"), "/"),
 		AdminOrigin: strings.TrimRight(env("ADMIN_ORIGIN", "http://localhost:5174"), "/"), DatabaseURL: os.Getenv("DATABASE_URL"), AccessPrivateKey: privateKey, AccessPublicKey: publicKey,
-		AccessTTL: accessTTL, RefreshTTL: refreshTTL, AdminCookieSecure: boolEnv("ADMIN_COOKIE_SECURE", false), R2Endpoint: os.Getenv("R2_ENDPOINT"), R2PresignEndpoint: os.Getenv("R2_PRESIGN_ENDPOINT"), R2Region: env("R2_REGION", "auto"),
-		R2Bucket: env("R2_BUCKET", "mostlyvers-private"), R2PublicBucket: env("R2_PUBLIC_BUCKET", "mostlyvers-public"), R2AccessKey: os.Getenv("R2_ACCESS_KEY_ID"), R2SecretKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
-		R2PublicBaseURL: strings.TrimRight(os.Getenv("R2_PUBLIC_BASE_URL"), "/"), ContentKEK: kek, ResendAPIKey: os.Getenv("RESEND_API_KEY"), EmailFrom: env("EMAIL_FROM", "MOSTLYVERS <hello@example.test>"),
+		AccessTTL: accessTTL, RefreshTTL: refreshTTL, AdminCookieSecure: boolEnv("ADMIN_COOKIE_SECURE", false), R2Endpoint: preferredEnv("STORAGE_ENDPOINT", "R2_ENDPOINT"), R2PresignEndpoint: preferredEnv("STORAGE_PRESIGN_ENDPOINT", "R2_PRESIGN_ENDPOINT"), R2Region: preferredEnvDefault("STORAGE_REGION", "R2_REGION", "auto"),
+		R2Bucket: preferredEnvDefault("STORAGE_BUCKET", "R2_BUCKET", "mostlyvers-private"), R2PublicBucket: preferredEnvDefault("STORAGE_PUBLIC_BUCKET", "R2_PUBLIC_BUCKET", "mostlyvers-public"), R2AccessKey: preferredEnv("STORAGE_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"), R2SecretKey: preferredEnv("STORAGE_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+		R2PublicBaseURL: strings.TrimRight(preferredEnv("STORAGE_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"), "/"), ContentKEK: kek, ResendAPIKey: os.Getenv("RESEND_API_KEY"), EmailFrom: env("EMAIL_FROM", "MOSTLYVERS <hello@example.test>"),
 		EmailProvider: env("EMAIL_PROVIDER", "console"), SMTPAddr: env("SMTP_ADDR", "localhost:1025"), IntegrityRequired: boolEnv("PLAY_INTEGRITY_REQUIRED", false), GoogleProjectNumber: os.Getenv("GOOGLE_CLOUD_PROJECT_NUMBER"), GoogleServiceAccountJSON: serviceAccountJSON, AndroidPackageName: env("ANDROID_PACKAGE_NAME", "com.mostlyvers.app"),
-		InternalJobToken: os.Getenv("INTERNAL_JOB_TOKEN"), StorageSoftLimit: soft, StorageHardLimit: hard,
+		InternalJobToken: os.Getenv("INTERNAL_JOB_TOKEN"), StorageSoftLimit: soft, StorageHardLimit: hard, MaxEPUBUploadBytes: maxEPUB,
 		BillingMode: strings.ToUpper(env("BILLING_MODE", "DISABLED")), CloudinaryCloudName: os.Getenv("CLOUDINARY_CLOUD_NAME"), CloudinaryAPIKey: os.Getenv("CLOUDINARY_API_KEY"), CloudinaryAPISecret: os.Getenv("CLOUDINARY_API_SECRET"),
 		ExpoPushEndpoint: env("EXPO_PUSH_ENDPOINT", "https://exp.host/--/api/v2/push/send"), OTPRequired: boolEnv("EMAIL_OTP_REQUIRED", os.Getenv("APP_ENV") == "production"), ReaderResetURL: strings.TrimRight(env("READER_RESET_URL", "mostlyvers://reset-password"), "/"),
 	}
@@ -104,11 +109,11 @@ func Load() (Config, error) {
 		return Config{}, errors.New("DATABASE_URL is required")
 	}
 	for name, value := range map[string]string{
-		"PUBLIC_BASE_URL":     c.PublicBaseURL,
-		"ADMIN_ORIGIN":        c.AdminOrigin,
-		"R2_ENDPOINT":         c.R2Endpoint,
-		"R2_PRESIGN_ENDPOINT": c.R2PresignEndpoint,
-		"R2_PUBLIC_BASE_URL":  c.R2PublicBaseURL,
+		"PUBLIC_BASE_URL":          c.PublicBaseURL,
+		"ADMIN_ORIGIN":             c.AdminOrigin,
+		"STORAGE_ENDPOINT":         c.R2Endpoint,
+		"STORAGE_PRESIGN_ENDPOINT": c.R2PresignEndpoint,
+		"STORAGE_PUBLIC_BASE_URL":  c.R2PublicBaseURL,
 	} {
 		if value != "" {
 			if err := validateHTTPURL(name, value); err != nil {
@@ -121,7 +126,7 @@ func Load() (Config, error) {
 			return Config{}, errors.New("a strong INTERNAL_JOB_TOKEN is required in production")
 		}
 		if c.R2Endpoint == "" || c.R2AccessKey == "" || c.R2SecretKey == "" {
-			return Config{}, errors.New("R2 configuration is required in production")
+			return Config{}, errors.New("S3-compatible object storage configuration is required in production")
 		}
 		if os.Getenv("ACCESS_TOKEN_PRIVATE_KEY_BASE64") == "" {
 			return Config{}, errors.New("explicit access-token keys are required in production")
@@ -161,6 +166,20 @@ func validateHTTPURL(name, value string) error {
 
 func env(name, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func preferredEnv(primary, legacy string) string {
+	if value := strings.TrimSpace(os.Getenv(primary)); value != "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv(legacy))
+}
+
+func preferredEnvDefault(primary, legacy, fallback string) string {
+	if value := preferredEnv(primary, legacy); value != "" {
 		return value
 	}
 	return fallback

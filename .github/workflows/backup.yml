@@ -17,11 +17,11 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      BACKUP_BUCKET: ${{ secrets.R2_PRIVATE_BUCKET }}
-      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.STORAGE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.STORAGE_REGION }}
+      BACKUP_BUCKET: ${{ secrets.STORAGE_BUCKET }}
+      STORAGE_ENDPOINT: ${{ secrets.STORAGE_ENDPOINT }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
     steps:
@@ -35,18 +35,18 @@ jobs:
           pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL" > database.dump
           openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_PASSPHRASE -in database.dump -out database.dump.enc
           daily="backups/daily/mostlyvers-${stamp}.dump.enc"
-          aws --endpoint-url "$R2_ENDPOINT" s3 cp database.dump.enc "s3://${BACKUP_BUCKET}/${daily}"
+          aws --endpoint-url "$STORAGE_ENDPOINT" s3 cp database.dump.enc "s3://${BACKUP_BUCKET}/${daily}"
           if [ "$(date -u +%u)" = "7" ]; then
-            aws --endpoint-url "$R2_ENDPOINT" s3 cp database.dump.enc "s3://${BACKUP_BUCKET}/backups/weekly/mostlyvers-${stamp}.dump.enc"
+            aws --endpoint-url "$STORAGE_ENDPOINT" s3 cp database.dump.enc "s3://${BACKUP_BUCKET}/backups/weekly/mostlyvers-${stamp}.dump.enc"
           fi
       - name: Enforce retention
         run: |
           set -euo pipefail
           prune() {
             prefix="$1"; keep="$2"
-            aws --endpoint-url "$R2_ENDPOINT" s3api list-objects-v2 --bucket "$BACKUP_BUCKET" --prefix "$prefix" \
+            aws --endpoint-url "$STORAGE_ENDPOINT" s3api list-objects-v2 --bucket "$BACKUP_BUCKET" --prefix "$prefix" \
               | jq -r --argjson keep "$keep" '.Contents // [] | sort_by(.LastModified) | reverse | .[$keep:][]?.Key' \
-              | while IFS= read -r key; do aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://${BACKUP_BUCKET}/${key}"; done
+              | while IFS= read -r key; do aws --endpoint-url "$STORAGE_ENDPOINT" s3 rm "s3://${BACKUP_BUCKET}/${key}"; done
           }
           prune backups/daily/ 7
           prune backups/weekly/ 4

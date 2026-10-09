@@ -532,7 +532,7 @@ func (s *Server) createUpload(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, httpx.NewError(422, "UNSUPPORTED_FILE_TYPE", "EPUB uploads must use application/epub+zip."))
 		return
 	}
-	limit := int64(100 << 20)
+	limit := s.cfg.MaxEPUBUploadBytes
 	if input.Size < 1 || input.Size > limit || len(input.Checksum) != 64 {
 		httpx.WriteError(w, r, httpx.NewError(422, "UPLOAD_INVALID", "File size or checksum is invalid."))
 		return

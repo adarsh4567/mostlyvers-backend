@@ -33,14 +33,24 @@ services:
         sync: false
       - key: CONTENT_KEY_ENCRYPTION_KEY_BASE64
         sync: false
-      - key: R2_ENDPOINT
+      - key: STORAGE_ENDPOINT
         sync: false
-      - key: R2_BUCKET
+      - key: STORAGE_REGION
         sync: false
-      - key: R2_ACCESS_KEY_ID
+      - key: STORAGE_BUCKET
         sync: false
-      - key: R2_SECRET_ACCESS_KEY
+      - key: STORAGE_PUBLIC_BUCKET
         sync: false
+      - key: STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: STORAGE_SOFT_LIMIT_BYTES
+        value: "891289600"
+      - key: STORAGE_HARD_LIMIT_BYTES
+        value: "996147200"
+      - key: MAX_EPUB_UPLOAD_BYTES
+        value: "52428800"
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM

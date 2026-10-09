@@ -99,7 +99,12 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) error {
 }
 func (s *Store) Usage(ctx context.Context) (int64, error) {
 	var total int64
+	seen := map[string]bool{}
 	for _, bucket := range []string{s.PrivateBucket, s.PublicBucket} {
+		if bucket == "" || seen[bucket] {
+			continue
+		}
+		seen[bucket] = true
 		paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{Bucket: aws.String(bucket)})
 		for paginator.HasMorePages() {
 			page, err := paginator.NextPage(ctx)
