@@ -105,12 +105,17 @@ paths:
     patch: { tags: [Admin], operationId: updateAdminMe, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
   /admin/books:
     get: { tags: [Admin], operationId: adminBooks, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Page' } } }
-    post: { tags: [Admin], operationId: createBook, security: [ { bearerAuth: [] } ], responses: { '201': { $ref: '#/components/responses/Object' } } }
+    post:
+      tags: [Admin]
+      operationId: createBook
+      security: [ { bearerAuth: [] } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateBookInput' } } } }
+      responses: { '201': { $ref: '#/components/responses/Object' }, default: { $ref: '#/components/responses/Error' } }
   /admin/books/{bookId}:
     parameters: [ { $ref: '#/components/parameters/BookId' } ]
     get: { tags: [Admin], operationId: adminBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
     patch: { tags: [Admin], operationId: updateBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } }
-    delete: { tags: [Admin], operationId: deleteDraftBook, security: [ { bearerAuth: [] } ], responses: { '204': {description: Deleted} } }
+    delete: { tags: [Admin], operationId: deleteUnusedBook, security: [ { bearerAuth: [] } ], responses: { '202': {description: Deleted and storage cleanup queued}, '204': {description: Already deleted}, default: { $ref: '#/components/responses/Error' } } }
   /admin/books/{bookId}/publish: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Admin], operationId: publishBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
   /admin/books/{bookId}/archive: { parameters: [ { $ref: '#/components/parameters/BookId' } ], post: { tags: [Admin], operationId: archiveBook, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
   /admin/books/{bookId}/sales: { parameters: [ { $ref: '#/components/parameters/BookId' } ], get: { tags: [Admin], operationId: bookSales, security: [ { bearerAuth: [] } ], responses: { '200': { $ref: '#/components/responses/Object' } } } }
@@ -164,6 +169,31 @@ components:
     PaymentDisabled: { description: Payment provider is disabled, content: { application/json: { schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: PAYMENT_NOT_CONFIGURED, message: Payments are not configured yet., requestId: 018f0000-0000-7000-8000-000000000000}} } } }
   schemas:
     Money: { type: object, required: [amountMinor, currency], properties: {amountMinor: {type: integer, format: int64}, currency: {type: string, pattern: '^[A-Z]{3}$'}} }
+    CreateBookInput:
+      type: object
+      additionalProperties: false
+      required: [title, contentUploadRef]
+      properties:
+        title: { type: string, minLength: 1 }
+        contentUploadRef: { type: string, format: uuid }
+        coverUploadRef: { type: string }
+        shortDescription: { type: string }
+        publicationMonth: { type: integer, minimum: 1, maximum: 12 }
+        publicationYear: { type: integer, minimum: 2000 }
+        youtubeAsset:
+          type: object
+          required: [songName, youtubeUrl]
+          properties: { songName: {type: string}, youtubeUrl: {type: string, format: uri} }
+    AdminBookActions:
+      type: object
+      required: [canEdit, canPublish, canArchive, canDelete]
+      properties:
+        canEdit: {type: boolean}
+        canPublish: {type: boolean}
+        canArchive: {type: boolean}
+        canDelete: {type: boolean}
+        publishBlockedReason: {type: string}
+        deleteBlockedReason: {type: string}
     DeviceContext: { type: object, required: [installationId, displayName, platform, osVersion, appVersion, packageName], properties: {installationId: {type: string}, displayName: {type: string}, platform: {type: string, const: ANDROID}, osVersion: {type: string}, appVersion: {type: string}, packageName: {type: string}, integrityToken: {type: string}, integrityRequestHash: {type: string}} }
     ReaderSession: { type: object, required: [accessToken, accessTokenExpiresAt, refreshToken, reader, accessMode, deviceAccess], properties: {accessToken: {type: string}, accessTokenExpiresAt: {type: string, format: date-time}, refreshToken: {type: string}, reader: {type: object, additionalProperties: true}, accessMode: {enum: [FULL, BROWSE_ONLY]}, deviceAccess: {type: object, additionalProperties: true}} }
     CursorPage: { type: object, required: [items], properties: {items: {type: array, items: {}}, nextCursor: {type: [string, 'null']}, total: {type: integer}} }

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -111,11 +112,41 @@ func (s *Server) processJob(ctx context.Context, job claimedJob) error {
 		return s.processEPUBJob(ctx, job.Payload)
 	case "DELETE_ACCOUNT":
 		return s.processDeletionJob(ctx, job.ID, job.Payload)
+	case "DELETE_BOOK_ASSETS":
+		return s.processBookAssetDeletionJob(ctx, job.Payload)
 	case "CLEANUP":
 		return s.cleanup(ctx)
 	default:
 		return fmt.Errorf("unsupported job kind %q", job.Kind)
 	}
+}
+
+type bookAssetDeletionPayload struct {
+	OperationID    string   `json:"operationId"`
+	ObjectKeys     []string `json:"objectKeys"`
+	CoverObjectKey string   `json:"coverObjectKey"`
+}
+
+func (s *Server) processBookAssetDeletionJob(ctx context.Context, payload []byte) error {
+	var input bookAssetDeletionPayload
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return err
+	}
+	_, _ = s.store.Pool.Exec(ctx, `UPDATE operations SET status='RUNNING',progress=10,updated_at=now() WHERE id=$1`, input.OperationID)
+	for _, key := range input.ObjectKeys {
+		if key == "" {
+			continue
+		}
+		if err := s.objects.Delete(ctx, s.objects.PrivateBucket, key); err != nil {
+			_, _ = s.store.Pool.Exec(ctx, `UPDATE operations SET status='FAILED',error_code='ASSET_CLEANUP_FAILED',updated_at=now() WHERE id=$1`, input.OperationID)
+			return err
+		}
+	}
+	if input.CoverObjectKey != "" {
+		s.deleteImage(ctx, input.CoverObjectKey)
+	}
+	_, err := s.store.Pool.Exec(ctx, `UPDATE operations SET status='COMPLETED',progress=100,updated_at=now() WHERE id=$1`, input.OperationID)
+	return err
 }
 
 // Local development processes newly attached content immediately so the
@@ -223,11 +254,24 @@ func (s *Server) processEPUBJob(ctx context.Context, payload []byte) error {
 	return tx.Commit(ctx)
 }
 func (s *Server) failOperation(ctx context.Context, input epubJobPayload, cause error) error {
-	code := truncate(cause.Error(), 100)
+	code := safeContentErrorCode(cause)
 	_, _ = s.store.Pool.Exec(ctx, `UPDATE book_content_versions SET status='FAILED',failure_code=$2 WHERE id=$1`, input.ContentVersionID, code)
 	_, _ = s.store.Pool.Exec(ctx, `UPDATE uploads SET status='FAILED',error_code=$2 WHERE id=(SELECT source_upload_id FROM book_content_versions WHERE id=$1)`, input.ContentVersionID, code)
 	_, _ = s.store.Pool.Exec(ctx, `UPDATE operations SET status='FAILED',error_code=$2,updated_at=now() WHERE id=$1`, input.OperationID, code)
 	return cause
+}
+
+func safeContentErrorCode(cause error) string {
+	code := strings.TrimSpace(strings.SplitN(cause.Error(), ":", 2)[0])
+	if !strings.HasPrefix(code, "EPUB_") {
+		return "EPUB_PROCESSING_FAILED"
+	}
+	for _, char := range code {
+		if (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' {
+			return "EPUB_PROCESSING_FAILED"
+		}
+	}
+	return truncate(code, 100)
 }
 
 type deletionJobPayload struct {

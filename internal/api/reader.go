@@ -313,6 +313,10 @@ func (s *Server) queryBooks(ctx context.Context, readerID, where string, args ..
 		if cover != nil {
 			b.CoverURL = s.imageURL(*cover)
 		}
+		if s.cfg.BillingMode == "FREE_LAUNCH" {
+			b.PriceMinor = 0
+			b.Currency = "INR"
+		}
 		items = append(items, b.JSON())
 	}
 	return items, rows.Err()

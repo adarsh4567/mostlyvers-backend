@@ -180,7 +180,8 @@ func (s *Server) topBooks(r *http.Request, limit int) []adminTopBook {
 		if cover != nil {
 			coverURL = s.imageURL(*cover)
 		}
-		out = append(out, buildTopBook(id, title, coverURL, count, price, revenue, currency))
+		presented := presentedBookPrice(s.cfg.BillingMode, price, currency)
+		out = append(out, buildTopBook(id, title, coverURL, count, presented.AmountMinor, revenue, presented.Currency))
 	}
 	return out
 }
@@ -196,6 +197,49 @@ type adminTopBook struct {
 
 func buildTopBook(id, title, coverURL string, purchases int, priceMinor, revenueMinor int64, currency string) adminTopBook {
 	return adminTopBook{ID: id, Title: title, CoverURL: coverURL, Purchases: purchases, Price: domain.Money{AmountMinor: priceMinor, Currency: currency}, Revenue: domain.Money{AmountMinor: revenueMinor, Currency: currency}}
+}
+
+func presentedBookPrice(billingMode string, amountMinor int64, currencyCode string) domain.Money {
+	if billingMode == "FREE_LAUNCH" {
+		return domain.Money{AmountMinor: 0, Currency: "INR"}
+	}
+	return domain.Money{AmountMinor: amountMinor, Currency: currency(currencyCode)}
+}
+
+type adminBookActions struct {
+	CanEdit              bool   `json:"canEdit"`
+	CanPublish           bool   `json:"canPublish"`
+	CanArchive           bool   `json:"canArchive"`
+	CanDelete            bool   `json:"canDelete"`
+	PublishBlockedReason string `json:"publishBlockedReason,omitempty"`
+	DeleteBlockedReason  string `json:"deleteBlockedReason,omitempty"`
+}
+
+func buildAdminBookActions(status, contentStatus string, used bool) adminBookActions {
+	actions := adminBookActions{CanEdit: true}
+	actions.CanPublish = (status == "DRAFT" || status == "UPCOMING") && contentStatus == "VALID"
+	actions.CanArchive = status == "UPCOMING" || status == "PUBLISHED"
+	actions.CanDelete = (status == "DRAFT" || status == "ARCHIVED") && !used && contentStatus != "PROCESSING"
+	if !actions.CanPublish && (status == "DRAFT" || status == "UPCOMING") {
+		switch contentStatus {
+		case "PROCESSING":
+			actions.PublishBlockedReason = "EPUB processing is still in progress."
+		case "FAILED":
+			actions.PublishBlockedReason = "EPUB processing failed. Replace the EPUB and try again."
+		default:
+			actions.PublishBlockedReason = "Upload and validate an EPUB before publishing."
+		}
+	}
+	if !actions.CanDelete {
+		if contentStatus == "PROCESSING" {
+			actions.DeleteBlockedReason = "Wait for EPUB processing to finish before deleting this book."
+		} else if used {
+			actions.DeleteBlockedReason = "Reader ownership or history requires this book to be retained."
+		} else if status != "DRAFT" && status != "ARCHIVED" {
+			actions.DeleteBlockedReason = "Only Draft or Archived books can be permanently deleted."
+		}
+	}
+	return actions
 }
 
 type adminBookInput struct {
@@ -218,8 +262,49 @@ type adminBookInput struct {
 	} `json:"youtubeAsset"`
 }
 
+type createBookInput struct {
+	Title            string  `json:"title"`
+	ContentUploadRef string  `json:"contentUploadRef"`
+	CoverUploadRef   *string `json:"coverUploadRef"`
+	ShortDescription string  `json:"shortDescription"`
+	PublicationMonth *int    `json:"publicationMonth"`
+	PublicationYear  *int    `json:"publicationYear"`
+	YoutubeAsset     *struct {
+		SongName   string `json:"songName"`
+		YoutubeURL string `json:"youtubeUrl"`
+	} `json:"youtubeAsset"`
+}
+
+func normalizeCreateBookInput(input createBookInput, now time.Time, defaultDiscount int) (adminBookInput, error) {
+	title := strings.TrimSpace(input.Title)
+	contentRef := strings.TrimSpace(input.ContentUploadRef)
+	if title == "" || contentRef == "" {
+		return adminBookInput{}, httpx.NewError(422, "VALIDATION_ERROR", "Book title and EPUB upload are required.")
+	}
+	month, year := int(now.Month()), now.Year()
+	if input.PublicationMonth != nil {
+		month = *input.PublicationMonth
+	}
+	if input.PublicationYear != nil {
+		year = *input.PublicationYear
+	}
+	output := adminBookInput{
+		Title: title, ShortDescription: strings.TrimSpace(input.ShortDescription),
+		PublicationMonth: month, PublicationYear: year,
+		Price: domain.Money{AmountMinor: 0, Currency: "INR"}, Status: "DRAFT",
+		CoverUploadRef: input.CoverUploadRef, ContentUploadRef: &contentRef,
+		YoutubeAsset: input.YoutubeAsset,
+	}
+	output.Prebook.Enabled = false
+	output.Prebook.DiscountPercent = defaultDiscount
+	if err := validateBookInput(output); err != nil {
+		return adminBookInput{}, err
+	}
+	return output, nil
+}
+
 func validateBookInput(input adminBookInput) error {
-	if strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.ShortDescription) == "" || input.PublicationMonth < 1 || input.PublicationMonth > 12 || input.PublicationYear < 2000 || input.Price.AmountMinor < 0 {
+	if strings.TrimSpace(input.Title) == "" || input.PublicationMonth < 1 || input.PublicationMonth > 12 || input.PublicationYear < 2000 || input.Price.AmountMinor < 0 {
 		return httpx.NewError(422, "VALIDATION_ERROR", "Book fields are invalid.")
 	}
 	if input.Status != "DRAFT" && input.Status != "UPCOMING" && input.Status != "PUBLISHED" && input.Status != "ARCHIVED" {
@@ -234,16 +319,15 @@ func validateBookInput(input adminBookInput) error {
 	return nil
 }
 func (s *Server) createBook(w http.ResponseWriter, r *http.Request) {
-	var input adminBookInput
-	if !httpx.Decode(w, r, &input) {
+	var requested createBookInput
+	if !httpx.Decode(w, r, &requested) {
 		return
 	}
-	if err := validateBookInput(input); err != nil {
+	var defaultDiscount int
+	_ = s.store.Pool.QueryRow(r.Context(), `SELECT default_prebook_discount FROM app_settings WHERE id=true`).Scan(&defaultDiscount)
+	input, err := normalizeCreateBookInput(requested, time.Now().UTC(), defaultDiscount)
+	if err != nil {
 		httpx.WriteError(w, r, err)
-		return
-	}
-	if input.Status == "PUBLISHED" || input.Status == "ARCHIVED" {
-		httpx.WriteError(w, r, httpx.NewError(422, "INVALID_STATUS_TRANSITION", "Use the publish or archive action for this status."))
 		return
 	}
 	p := principal(r)
@@ -255,16 +339,15 @@ func (s *Server) createBook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	_, err := s.store.Pool.Exec(r.Context(), `INSERT INTO books(id,title,short_description,cover_object_key,publication_month,publication_year,price_minor,currency,status,prebook_enabled,prebook_discount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, strings.TrimSpace(input.Title), strings.TrimSpace(input.ShortDescription), cover, input.PublicationMonth, input.PublicationYear, input.Price.AmountMinor, currency(input.Price.Currency), input.Status, input.Prebook.Enabled, input.Prebook.DiscountPercent)
+	_, err = s.store.Pool.Exec(r.Context(), `INSERT INTO books(id,title,short_description,cover_object_key,publication_month,publication_year,price_minor,currency,status,prebook_enabled,prebook_discount) VALUES($1,$2,$3,$4,$5,$6,0,'INR','DRAFT',false,$7)`, id, input.Title, input.ShortDescription, cover, input.PublicationMonth, input.PublicationYear, input.Prebook.DiscountPercent)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	if input.ContentUploadRef != nil {
-		if err = s.attachContentUpload(r, p.AccountID, id, *input.ContentUploadRef); err != nil {
-			httpx.WriteError(w, r, err)
-			return
-		}
+	if err = s.attachContentUpload(r, p.AccountID, id, *input.ContentUploadRef); err != nil {
+		_, _ = s.store.Pool.Exec(r.Context(), `DELETE FROM books WHERE id=$1`, id)
+		httpx.WriteError(w, r, err)
+		return
 	}
 	if input.YoutubeAsset != nil {
 		_, _ = s.store.Pool.Exec(r.Context(), `INSERT INTO youtube_assets(book_id,song_name,youtube_url,updated_by) VALUES($1,$2,$3,$4)`, id, input.YoutubeAsset.SongName, input.YoutubeAsset.YoutubeURL, p.AccountID)
@@ -284,6 +367,9 @@ func (s *Server) attachContentUpload(r *http.Request, ownerID, bookID, uploadID 
 	var key string
 	var status string
 	err := s.store.Pool.QueryRow(r.Context(), `SELECT object_key,status FROM uploads WHERE id=$1 AND owner_id=$2 AND kind='EPUB'`, uploadID, ownerID).Scan(&key, &status)
+	if err == pgx.ErrNoRows {
+		return httpx.NewError(422, "CONTENT_UPLOAD_INVALID", "The EPUB upload reference is not valid.")
+	}
 	if err != nil {
 		return err
 	}
@@ -333,14 +419,18 @@ func (s *Server) updateBook(w http.ResponseWriter, r *http.Request) {
 	}
 	p := principal(r)
 	bookID := chi.URLParam(r, "bookID")
-	var currentStatus string
-	if err := s.store.Pool.QueryRow(r.Context(), `SELECT status FROM books WHERE id=$1`, bookID).Scan(&currentStatus); err != nil {
+	var currentStatus, currentCurrency string
+	var currentPrice int64
+	if err := s.store.Pool.QueryRow(r.Context(), `SELECT status,price_minor,currency FROM books WHERE id=$1`, bookID).Scan(&currentStatus, &currentPrice, &currentCurrency); err != nil {
 		httpx.WriteError(w, r, httpx.NewError(404, "BOOK_NOT_FOUND", "Book not found."))
 		return
 	}
 	if input.Status != currentStatus && (input.Status == "PUBLISHED" || input.Status == "ARCHIVED" || currentStatus == "PUBLISHED" || currentStatus == "ARCHIVED") {
 		httpx.WriteError(w, r, httpx.NewError(422, "INVALID_STATUS_TRANSITION", "Use the publish or archive action for this status."))
 		return
+	}
+	if s.cfg.BillingMode == "FREE_LAUNCH" {
+		input.Price = domain.Money{AmountMinor: currentPrice, Currency: currentCurrency}
 	}
 	tag, err := s.store.Pool.Exec(r.Context(), `UPDATE books SET title=$1,short_description=$2,publication_month=$3,publication_year=$4,price_minor=$5,currency=$6,status=$7,prebook_enabled=$8,prebook_discount=$9,version=version+1,updated_at=now() WHERE id=$10 AND version=$11`, strings.TrimSpace(input.Title), strings.TrimSpace(input.ShortDescription), input.PublicationMonth, input.PublicationYear, input.Price.AmountMinor, currency(input.Price.Currency), input.Status, input.Prebook.Enabled, input.Prebook.DiscountPercent, bookID, *input.Version)
 	if err != nil {
@@ -381,7 +471,7 @@ func (s *Server) publishBook(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	var valid bool
 	var currentStatus string
-	err = tx.QueryRow(r.Context(), `SELECT cover_object_key IS NOT NULL AND EXISTS(SELECT 1 FROM book_content_versions c WHERE c.id=books.current_content_version_id AND c.status='VALID'),status FROM books WHERE id=$1 FOR UPDATE`, bookID).Scan(&valid, &currentStatus)
+	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM book_content_versions c WHERE c.id=books.current_content_version_id AND c.status='VALID'),status FROM books WHERE id=$1 FOR UPDATE`, bookID).Scan(&valid, &currentStatus)
 	if err == nil && currentStatus == "PUBLISHED" {
 		httpx.JSON(w, 200, map[string]any{"status": "COMPLETED", "alreadyPublished": true})
 		return
@@ -391,7 +481,7 @@ func (s *Server) publishBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil || !valid {
-		httpx.WriteError(w, r, httpx.NewError(409, "BOOK_NOT_READY", "A validated cover and EPUB are required before publishing."))
+		httpx.WriteError(w, r, httpx.NewError(409, "BOOK_NOT_READY", "A validated EPUB is required before publishing."))
 		return
 	}
 	var months int
@@ -431,6 +521,10 @@ func (s *Server) archiveBook(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, 200, map[string]string{"status": "ARCHIVED"})
 		return
 	}
+	if current != "UPCOMING" && current != "PUBLISHED" {
+		httpx.WriteError(w, r, httpx.NewError(409, "INVALID_STATUS_TRANSITION", "Only Upcoming or Published books can be archived."))
+		return
+	}
 	tag, err := s.store.Pool.Exec(r.Context(), `UPDATE books SET status='ARCHIVED',archived_at=now(),version=version+1,updated_at=now() WHERE id=$1`, bookID)
 	if err != nil {
 		httpx.WriteError(w, r, err)
@@ -445,21 +539,104 @@ func (s *Server) archiveBook(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) deleteBook(w http.ResponseWriter, r *http.Request) {
 	bookID := chi.URLParam(r, "bookID")
-	tag, err := s.store.Pool.Exec(r.Context(), `DELETE FROM books b WHERE b.id=$1 AND b.status='DRAFT' AND NOT EXISTS(SELECT 1 FROM entitlements e WHERE e.book_id=b.id) AND NOT EXISTS(SELECT 1 FROM prebooks p WHERE p.book_id=b.id) AND NOT EXISTS(SELECT 1 FROM transactions t WHERE t.book_id=b.id)`, bookID)
+	p := principal(r)
+	var status, contentStatus string
+	var used bool
+	err := s.store.Pool.QueryRow(r.Context(), `SELECT status,COALESCE((SELECT cv.status FROM book_content_versions cv WHERE cv.book_id=b.id ORDER BY cv.version DESC LIMIT 1),'MISSING'),EXISTS(SELECT 1 FROM entitlements e WHERE e.book_id=b.id) OR EXISTS(SELECT 1 FROM prebooks p WHERE p.book_id=b.id) OR EXISTS(SELECT 1 FROM transactions t WHERE t.book_id=b.id) FROM books b WHERE b.id=$1`, bookID).Scan(&status, &contentStatus, &used)
+	if err == pgx.ErrNoRows {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	if tag.RowsAffected() == 0 {
-		httpx.WriteError(w, r, httpx.NewError(409, "RETENTION_REQUIRED", "Only an unused draft can be permanently deleted."))
+	actions := buildAdminBookActions(status, contentStatus, used)
+	if !actions.CanDelete {
+		httpx.WriteError(w, r, httpx.NewError(409, "RETENTION_REQUIRED", actions.DeleteBlockedReason))
 		return
 	}
-	w.WriteHeader(204)
+	var cover *string
+	_ = s.store.Pool.QueryRow(r.Context(), `SELECT cover_object_key FROM books WHERE id=$1`, bookID).Scan(&cover)
+	removeCover := false
+	if cover != nil {
+		_ = s.store.Pool.QueryRow(r.Context(), `SELECT NOT EXISTS(SELECT 1 FROM books WHERE id<>$1 AND cover_object_key=$2)`, bookID, *cover).Scan(&removeCover)
+	}
+	rows, err := s.store.Pool.Query(r.Context(), `SELECT DISTINCT key FROM (SELECT source_object_key AS key FROM book_content_versions WHERE book_id=$1 UNION ALL SELECT sanitized_object_key FROM book_content_versions WHERE book_id=$1 UNION ALL SELECT encrypted_object_key FROM book_content_versions WHERE book_id=$1 UNION ALL SELECT r.object_key FROM book_resources r JOIN book_content_versions c ON c.id=r.content_version_id WHERE c.book_id=$1) objects WHERE key IS NOT NULL`, bookID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	keys := []string{}
+	for rows.Next() {
+		var key string
+		if rows.Scan(&key) == nil {
+			keys = append(keys, key)
+		}
+	}
+	rows.Close()
+	uploadIDs := []string{}
+	uploadRows, err := s.store.Pool.Query(r.Context(), `SELECT DISTINCT u.id FROM uploads u JOIN book_content_versions c ON c.source_upload_id=u.id WHERE c.book_id=$1`, bookID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	for uploadRows.Next() {
+		var uploadID string
+		if uploadRows.Scan(&uploadID) == nil {
+			uploadIDs = append(uploadIDs, uploadID)
+		}
+	}
+	uploadRows.Close()
+	operationID, jobID := store.NewID(), store.NewID()
+	tx, err := s.store.Pool.Begin(r.Context())
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	_, err = tx.Exec(r.Context(), `UPDATE books SET current_content_version_id=NULL WHERE id=$1`, bookID)
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `DELETE FROM books WHERE id=$1`, bookID)
+	}
+	if err == nil {
+		for _, uploadID := range uploadIDs {
+			_, err = tx.Exec(r.Context(), `DELETE FROM uploads WHERE id=$1`, uploadID)
+			if err != nil {
+				break
+			}
+		}
+	}
+	if err == nil && cover != nil && removeCover {
+		_, err = tx.Exec(r.Context(), `DELETE FROM uploads WHERE object_key=$1 AND kind='BOOK_COVER'`, *cover)
+	}
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `INSERT INTO operations(id,kind,created_by,result) VALUES($1,'DELETE_BOOK_ASSETS',$2,$3)`, operationID, p.AccountID, mapJSON(map[string]any{"bookId": bookID}))
+	}
+	payload := map[string]any{"operationId": operationID, "objectKeys": keys}
+	if cover != nil && removeCover {
+		payload["coverObjectKey"] = *cover
+	}
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `INSERT INTO jobs(id,kind,payload) VALUES($1,'DELETE_BOOK_ASSETS',$2)`, jobID, mapJSON(payload))
+	}
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `INSERT INTO audit_events(id,actor_id,actor_role,action,target_type,target_id,request_id) VALUES($1,$2,'OWNER','BOOK_DELETED','BOOK',$3,$4)`, store.NewID(), p.AccountID, bookID, requestID(r))
+	}
+	if err == nil {
+		err = tx.Commit(r.Context())
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	s.kickDevelopmentJob(jobID)
+	httpx.JSON(w, http.StatusAccepted, map[string]any{"operationId": operationID, "status": "PENDING"})
 }
 
 func (s *Server) adminBooks(w http.ResponseWriter, r *http.Request) {
 	status, query, latest := r.URL.Query().Get("status"), r.URL.Query().Get("query"), r.URL.Query().Get("latest") == "true"
-	rows, err := s.store.Pool.Query(r.Context(), `SELECT b.id,b.version,b.title,b.short_description,b.cover_object_key,b.publication_month,b.publication_year,b.price_minor,b.currency,b.status,b.prebook_enabled,b.prebook_discount,b.catalog_status,b.created_at,b.updated_at,(SELECT count(*) FROM entitlements e WHERE e.book_id=b.id AND e.status='ACTIVE'),COALESCE((SELECT sum(t.amount_minor) FROM transactions t WHERE t.book_id=b.id AND t.status='COMPLETED'),0),c.version,c.status,u.file_name,y.song_name,y.youtube_url,y.status FROM books b LEFT JOIN LATERAL (SELECT cv.version,cv.status,cv.source_upload_id FROM book_content_versions cv WHERE cv.book_id=b.id ORDER BY cv.version DESC LIMIT 1) c ON true LEFT JOIN uploads u ON u.id=c.source_upload_id LEFT JOIN youtube_assets y ON y.book_id=b.id WHERE ($1='' OR b.status=$1) AND ($2='' OR b.title ILIKE '%'||$2||'%') AND (NOT $3 OR (b.status='PUBLISHED' AND b.latest_until>now())) ORDER BY b.updated_at DESC`, status, query, latest)
+	rows, err := s.store.Pool.Query(r.Context(), `SELECT b.id,b.version,b.title,b.short_description,b.cover_object_key,b.publication_month,b.publication_year,b.price_minor,b.currency,b.status,b.prebook_enabled,b.prebook_discount,b.catalog_status,b.created_at,b.updated_at,(SELECT count(*) FROM entitlements e WHERE e.book_id=b.id AND e.status='ACTIVE'),COALESCE((SELECT sum(t.amount_minor) FROM transactions t WHERE t.book_id=b.id AND t.status='COMPLETED'),0),c.version,c.status,u.file_name,y.song_name,y.youtube_url,y.status,c.failure_code,o.progress,(EXISTS(SELECT 1 FROM entitlements e WHERE e.book_id=b.id) OR EXISTS(SELECT 1 FROM prebooks p WHERE p.book_id=b.id) OR EXISTS(SELECT 1 FROM transactions t WHERE t.book_id=b.id)) FROM books b LEFT JOIN LATERAL (SELECT cv.id,cv.version,cv.status,cv.source_upload_id,cv.failure_code FROM book_content_versions cv WHERE cv.book_id=b.id ORDER BY cv.version DESC LIMIT 1) c ON true LEFT JOIN LATERAL (SELECT op.progress FROM operations op WHERE op.kind='PROCESS_EPUB' AND op.result->>'contentVersionId'=c.id::text ORDER BY op.created_at DESC LIMIT 1) o ON true LEFT JOIN uploads u ON u.id=c.source_upload_id LEFT JOIN youtube_assets y ON y.book_id=b.id WHERE ($1='' OR b.status=$1) AND ($2='' OR b.title ILIKE '%'||$2||'%') AND (NOT $3 OR (b.status='PUBLISHED' AND b.latest_until>now())) ORDER BY b.updated_at DESC`, status, query, latest)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -488,8 +665,10 @@ func (s *Server) scanAdminBook(row scanner) (map[string]any, error) {
 	var prebook bool
 	var created, updated time.Time
 	var contentVersion *int
-	var contentStatus, contentFileName, song, youtubeURL, youtubeStatus *string
-	err := row.Scan(&id, &version, &title, &desc, &cover, &month, &year, &price, &currency, &status, &prebook, &discount, &catalog, &created, &updated, &purchases, &revenue, &contentVersion, &contentStatus, &contentFileName, &song, &youtubeURL, &youtubeStatus)
+	var contentStatus, contentFileName, song, youtubeURL, youtubeStatus, contentError *string
+	var contentProgress *int
+	var used bool
+	err := row.Scan(&id, &version, &title, &desc, &cover, &month, &year, &price, &currency, &status, &prebook, &discount, &catalog, &created, &updated, &purchases, &revenue, &contentVersion, &contentStatus, &contentFileName, &song, &youtubeURL, &youtubeStatus, &contentError, &contentProgress, &used)
 	if err != nil {
 		return nil, err
 	}
@@ -497,13 +676,25 @@ func (s *Server) scanAdminBook(row scanner) (map[string]any, error) {
 	if cover != nil {
 		coverURL = s.imageURL(*cover)
 	}
-	item := map[string]any{"id": id, "version": version, "title": title, "shortDescription": desc, "coverUrl": coverURL, "publicationMonth": month, "publicationYear": year, "price": domain.Money{AmountMinor: price, Currency: currency}, "status": status, "purchaseCount": purchases, "revenue": domain.Money{AmountMinor: revenue, Currency: currency}, "contentStatus": "MISSING", "prebook": map[string]any{"enabled": prebook, "discountPercent": discount, "count": 0}, "catalogStatus": catalog, "createdAt": created, "updatedAt": updated}
+	presentedPrice := presentedBookPrice(s.cfg.BillingMode, price, currency)
+	resolvedContentStatus := "MISSING"
 	if contentStatus != nil {
-		item["contentStatus"] = *contentStatus
+		resolvedContentStatus = *contentStatus
+	}
+	item := map[string]any{"id": id, "version": version, "title": title, "shortDescription": desc, "coverUrl": coverURL, "publicationMonth": month, "publicationYear": year, "price": presentedPrice, "status": status, "purchaseCount": purchases, "revenue": domain.Money{AmountMinor: revenue, Currency: currency}, "contentStatus": resolvedContentStatus, "prebook": map[string]any{"enabled": prebook, "discountPercent": discount, "count": 0}, "catalogStatus": catalog, "createdAt": created, "updatedAt": updated, "actions": buildAdminBookActions(status, resolvedContentStatus, used)}
+	if contentStatus != nil {
 		if contentFileName != nil {
 			item["contentFileName"] = *contentFileName
 		} else {
 			item["contentFileName"] = "book-v" + strconv.Itoa(*contentVersion) + ".epub"
+		}
+		if contentProgress != nil {
+			item["contentProgress"] = *contentProgress
+		} else if *contentStatus == "VALID" || *contentStatus == "FAILED" {
+			item["contentProgress"] = 100
+		}
+		if contentError != nil {
+			item["contentErrorCode"] = *contentError
 		}
 	}
 	if song != nil {
@@ -512,7 +703,7 @@ func (s *Server) scanAdminBook(row scanner) (map[string]any, error) {
 	return item, nil
 }
 func (s *Server) adminBook(w http.ResponseWriter, r *http.Request) {
-	row := s.store.Pool.QueryRow(r.Context(), `SELECT b.id,b.version,b.title,b.short_description,b.cover_object_key,b.publication_month,b.publication_year,b.price_minor,b.currency,b.status,b.prebook_enabled,b.prebook_discount,b.catalog_status,b.created_at,b.updated_at,(SELECT count(*) FROM entitlements e WHERE e.book_id=b.id AND e.status='ACTIVE'),COALESCE((SELECT sum(t.amount_minor) FROM transactions t WHERE t.book_id=b.id AND t.status='COMPLETED'),0),c.version,c.status,u.file_name,y.song_name,y.youtube_url,y.status FROM books b LEFT JOIN LATERAL (SELECT cv.version,cv.status,cv.source_upload_id FROM book_content_versions cv WHERE cv.book_id=b.id ORDER BY cv.version DESC LIMIT 1) c ON true LEFT JOIN uploads u ON u.id=c.source_upload_id LEFT JOIN youtube_assets y ON y.book_id=b.id WHERE b.id=$1`, chi.URLParam(r, "bookID"))
+	row := s.store.Pool.QueryRow(r.Context(), `SELECT b.id,b.version,b.title,b.short_description,b.cover_object_key,b.publication_month,b.publication_year,b.price_minor,b.currency,b.status,b.prebook_enabled,b.prebook_discount,b.catalog_status,b.created_at,b.updated_at,(SELECT count(*) FROM entitlements e WHERE e.book_id=b.id AND e.status='ACTIVE'),COALESCE((SELECT sum(t.amount_minor) FROM transactions t WHERE t.book_id=b.id AND t.status='COMPLETED'),0),c.version,c.status,u.file_name,y.song_name,y.youtube_url,y.status,c.failure_code,o.progress,(EXISTS(SELECT 1 FROM entitlements e WHERE e.book_id=b.id) OR EXISTS(SELECT 1 FROM prebooks p WHERE p.book_id=b.id) OR EXISTS(SELECT 1 FROM transactions t WHERE t.book_id=b.id)) FROM books b LEFT JOIN LATERAL (SELECT cv.id,cv.version,cv.status,cv.source_upload_id,cv.failure_code FROM book_content_versions cv WHERE cv.book_id=b.id ORDER BY cv.version DESC LIMIT 1) c ON true LEFT JOIN LATERAL (SELECT op.progress FROM operations op WHERE op.kind='PROCESS_EPUB' AND op.result->>'contentVersionId'=c.id::text ORDER BY op.created_at DESC LIMIT 1) o ON true LEFT JOIN uploads u ON u.id=c.source_upload_id LEFT JOIN youtube_assets y ON y.book_id=b.id WHERE b.id=$1`, chi.URLParam(r, "bookID"))
 	item, err := s.scanAdminBook(row)
 	if err == pgx.ErrNoRows {
 		httpx.WriteError(w, r, httpx.NewError(404, "BOOK_NOT_FOUND", "Book not found."))
