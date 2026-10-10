@@ -59,6 +59,8 @@ func (s *Server) Router() http.Handler {
 	r.Get("/health/live", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, 200, map[string]any{"status": "ok", "uptimeSeconds": int(time.Since(s.started).Seconds())})
 	})
+	r.Get("/health/uptime", s.uptimeHealth)
+	r.Head("/health/uptime", s.uptimeHealth)
 	r.Get("/health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.Ping(r.Context()); err != nil {
 			httpx.WriteError(w, r, httpx.NewError(503, "DATABASE_UNAVAILABLE", "The database is unavailable."))
@@ -99,6 +101,20 @@ func (s *Server) Router() http.Handler {
 		v.Post("/internal/jobs/run", s.runJobs)
 	})
 	return r
+}
+
+// uptimeHealth is intentionally independent of PostgreSQL and third-party
+// services. External availability monitors use it to verify the web process
+// and keep a free Render instance active without generating database traffic.
+func (s *Server) uptimeHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Mostlyvers-Service", "api")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write([]byte("MOSTLYVERS_UP\n"))
 }
 
 func (s *Server) requestID(next http.Handler) http.Handler {

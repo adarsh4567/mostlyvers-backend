@@ -60,4 +60,6 @@ The wizard writes provider values only to the git-ignored `.env.render.local`, o
 5. Configure GitHub `API_ORIGIN` and `INTERNAL_JOB_TOKEN`. The hourly workflow wakes the free service and drains durable jobs; an in-process worker handles jobs while awake.
 6. Set Cloudflare Pages `API_ORIGIN` to the Render origin and `VITE_API_URL=/v1`, preserving same-origin admin refresh cookies.
 
-No PDF conversion exists: admin book content accepts EPUB only. Free Render instances sleep when idle, so the first request after inactivity can be slow.
+7. Configure the public UptimeRobot keyword monitor described in [docs/uptime-monitoring.md](docs/uptime-monitoring.md).
+
+No PDF conversion exists: admin book content accepts EPUB only. Without the external monitor, free Render instances sleep when idle, so the first request after inactivity can be slow.
