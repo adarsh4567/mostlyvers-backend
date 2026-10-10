@@ -34,6 +34,10 @@ type Config struct {
 	R2PublicBaseURL          string
 	ContentKEK               []byte
 	ResendAPIKey             string
+	EmailJSServiceID         string
+	EmailJSTemplateID        string
+	EmailJSPublicKey         string
+	EmailJSPrivateKey        string
 	EmailFrom                string
 	EmailProvider            string
 	SMTPAddr                 string
@@ -95,7 +99,8 @@ func Load() (Config, error) {
 		AccessTTL: accessTTL, RefreshTTL: refreshTTL, AdminCookieSecure: boolEnv("ADMIN_COOKIE_SECURE", false), R2Endpoint: preferredEnv("STORAGE_ENDPOINT", "R2_ENDPOINT"), R2PresignEndpoint: preferredEnv("STORAGE_PRESIGN_ENDPOINT", "R2_PRESIGN_ENDPOINT"), R2Region: preferredEnvDefault("STORAGE_REGION", "R2_REGION", "auto"),
 		R2Bucket: preferredEnvDefault("STORAGE_BUCKET", "R2_BUCKET", "mostlyvers-private"), R2PublicBucket: preferredEnvDefault("STORAGE_PUBLIC_BUCKET", "R2_PUBLIC_BUCKET", "mostlyvers-public"), R2AccessKey: preferredEnv("STORAGE_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"), R2SecretKey: preferredEnv("STORAGE_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
 		R2PublicBaseURL: strings.TrimRight(preferredEnv("STORAGE_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"), "/"), ContentKEK: kek, ResendAPIKey: os.Getenv("RESEND_API_KEY"), EmailFrom: env("EMAIL_FROM", "MOSTLYVERS <hello@example.test>"),
-		EmailProvider: env("EMAIL_PROVIDER", "console"), SMTPAddr: env("SMTP_ADDR", "localhost:1025"), IntegrityRequired: boolEnv("PLAY_INTEGRITY_REQUIRED", false), GoogleProjectNumber: os.Getenv("GOOGLE_CLOUD_PROJECT_NUMBER"), GoogleServiceAccountJSON: serviceAccountJSON, AndroidPackageName: env("ANDROID_PACKAGE_NAME", "com.mostlyvers.app"),
+		EmailJSServiceID: os.Getenv("EMAILJS_SERVICE_ID"), EmailJSTemplateID: os.Getenv("EMAILJS_TEMPLATE_ID"), EmailJSPublicKey: os.Getenv("EMAILJS_PUBLIC_KEY"), EmailJSPrivateKey: os.Getenv("EMAILJS_PRIVATE_KEY"),
+		EmailProvider: strings.ToLower(strings.TrimSpace(env("EMAIL_PROVIDER", "console"))), SMTPAddr: env("SMTP_ADDR", "localhost:1025"), IntegrityRequired: boolEnv("PLAY_INTEGRITY_REQUIRED", false), GoogleProjectNumber: os.Getenv("GOOGLE_CLOUD_PROJECT_NUMBER"), GoogleServiceAccountJSON: serviceAccountJSON, AndroidPackageName: env("ANDROID_PACKAGE_NAME", "com.mostlyvers.app"),
 		InternalJobToken: os.Getenv("INTERNAL_JOB_TOKEN"), StorageSoftLimit: soft, StorageHardLimit: hard, MaxEPUBUploadBytes: maxEPUB,
 		BillingMode: strings.ToUpper(env("BILLING_MODE", "DISABLED")), CloudinaryCloudName: os.Getenv("CLOUDINARY_CLOUD_NAME"), CloudinaryAPIKey: os.Getenv("CLOUDINARY_API_KEY"), CloudinaryAPISecret: os.Getenv("CLOUDINARY_API_SECRET"),
 		ExpoPushEndpoint: env("EXPO_PUSH_ENDPOINT", "https://exp.host/--/api/v2/push/send"), OTPRequired: boolEnv("EMAIL_OTP_REQUIRED", os.Getenv("APP_ENV") == "production"), ReaderResetURL: strings.TrimRight(env("READER_RESET_URL", "mostlyvers://reset-password"), "/"),
@@ -139,8 +144,8 @@ func Load() (Config, error) {
 		if !c.AdminCookieSecure || !strings.HasPrefix(c.AdminOrigin, "https://") {
 			return Config{}, errors.New("secure admin cookies and an HTTPS admin origin are required in production")
 		}
-		if c.EmailProvider != "resend" || c.ResendAPIKey == "" {
-			return Config{}, errors.New("Resend email configuration is required in production")
+		if err := validateProductionEmail(c); err != nil {
+			return Config{}, err
 		}
 		if c.CloudinaryCloudName == "" || c.CloudinaryAPIKey == "" || c.CloudinaryAPISecret == "" {
 			return Config{}, errors.New("Cloudinary image configuration is required in production")
@@ -156,6 +161,26 @@ func Load() (Config, error) {
 		return Config{}, errors.New("BILLING_MODE must be DISABLED or FREE_LAUNCH")
 	}
 	return c, nil
+}
+
+func validateProductionEmail(c Config) error {
+	switch c.EmailProvider {
+	case "resend":
+		if c.ResendAPIKey == "" || strings.TrimSpace(c.EmailFrom) == "" {
+			return errors.New("RESEND_API_KEY and EMAIL_FROM are required when EMAIL_PROVIDER=resend")
+		}
+	case "emailjs":
+		if c.EmailJSServiceID == "" || c.EmailJSTemplateID == "" || c.EmailJSPublicKey == "" {
+			return errors.New("EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, and EMAILJS_PUBLIC_KEY are required when EMAIL_PROVIDER=emailjs")
+		}
+	case "smtp":
+		if c.SMTPAddr == "" || strings.TrimSpace(c.EmailFrom) == "" {
+			return errors.New("SMTP_ADDR and EMAIL_FROM are required when EMAIL_PROVIDER=smtp")
+		}
+	default:
+		return fmt.Errorf("EMAIL_PROVIDER must be resend, emailjs, or smtp in production (got %q)", c.EmailProvider)
+	}
+	return nil
 }
 
 func validateHTTPURL(name, value string) error {

@@ -53,6 +53,9 @@ func main() {
 		}
 		sender = emailpkg.NewResend(cfg.ResendAPIKey, cfg.EmailFrom)
 	}
+	if cfg.EmailProvider == "emailjs" {
+		sender = emailpkg.NewEmailJS(cfg.EmailJSServiceID, cfg.EmailJSTemplateID, cfg.EmailJSPublicKey, cfg.EmailJSPrivateKey)
+	}
 	application := api.New(cfg, database, objects, sender, payment.Disabled{})
 	go application.StartWorker(ctx)
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: application.Router(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Minute, WriteTimeout: 15 * time.Minute, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 1 << 20}

@@ -12,7 +12,7 @@ services:
       - key: BILLING_MODE
         value: FREE_LAUNCH
       - key: EMAIL_PROVIDER
-        value: resend
+        value: emailjs
       - key: EMAIL_OTP_REQUIRED
         value: "true"
       - key: ADMIN_COOKIE_SECURE
@@ -49,10 +49,14 @@ services:
         value: "996147200"
       - key: MAX_EPUB_UPLOAD_BYTES
         value: "52428800"
-      - key: RESEND_API_KEY
+      - key: EMAILJS_SERVICE_ID
         sync: false
-      - key: EMAIL_FROM
-        value: MOSTLYVERS <onboarding@resend.dev>
+      - key: EMAILJS_TEMPLATE_ID
+        sync: false
+      - key: EMAILJS_PUBLIC_KEY
+        sync: false
+      - key: EMAILJS_PRIVATE_KEY
+        sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY

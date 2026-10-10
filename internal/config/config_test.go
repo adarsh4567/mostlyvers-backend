@@ -68,3 +68,19 @@ func TestProductionUsesRenderExternalHostname(t *testing.T) {
 		t.Fatalf("development PublicBaseURL = %q", got)
 	}
 }
+
+func TestValidateProductionEmailAcceptsEmailJS(t *testing.T) {
+	err := validateProductionEmail(Config{
+		EmailProvider: "emailjs", EmailJSServiceID: "service_123", EmailJSTemplateID: "template_123", EmailJSPublicKey: "public_123",
+	})
+	if err != nil {
+		t.Fatalf("validateProductionEmail() error = %v", err)
+	}
+}
+
+func TestValidateProductionEmailRejectsIncompleteEmailJS(t *testing.T) {
+	err := validateProductionEmail(Config{EmailProvider: "emailjs", EmailJSServiceID: "service_123"})
+	if err == nil || !strings.Contains(err.Error(), "EMAILJS_TEMPLATE_ID") {
+		t.Fatalf("validateProductionEmail() error = %v, want missing EmailJS configuration", err)
+	}
+}

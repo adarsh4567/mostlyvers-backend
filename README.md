@@ -17,7 +17,7 @@ OWNER_EMAIL=owner@example.com OWNER_PASSWORD='replace-this-password' OWNER_NAME=
 go run ./cmd/api
 ```
 
-The API listens at `http://localhost:5001`, the local object-storage console at `http://localhost:9001`, and Mailpit at `http://localhost:8025`. Development OTP responses include a marked `developmentCode`; production sends OTP and recovery mail through Resend and never returns the code.
+The API listens at `http://localhost:5001`, the local object-storage console at `http://localhost:9001`, and Mailpit at `http://localhost:8025`. Development OTP responses include a marked `developmentCode`; production sends OTP and recovery mail through the configured server-side email provider and never returns the code. The Render blueprint uses EmailJS with a connected low-volume Gmail service.
 
 The full local stack can instead be started with `docker compose up --build`. Do not use the sample `.env` secrets in a deployed environment.
 

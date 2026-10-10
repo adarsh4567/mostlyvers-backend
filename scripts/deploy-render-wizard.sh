@@ -286,16 +286,24 @@ write_env CLOUDINARY_CLOUD_NAME "$CLOUDINARY_CLOUD_NAME"
 write_env CLOUDINARY_API_KEY "$CLOUDINARY_API_KEY"
 write_env CLOUDINARY_API_SECRET "$CLOUDINARY_API_SECRET"
 
-stage "Resend transactional email"
-say "Resend sends signup OTP and password-recovery messages."
-open_url "https://resend.com/api-keys"
-step "Create or copy an API key that can send from your verified domain."
-ask_secret RESEND_API_KEY "Resend API key:"
-ask EMAIL_FROM "Verified sender (example: hello@yourdomain.com):"
-require_value RESEND_API_KEY "$RESEND_API_KEY"
-require_value EMAIL_FROM "$EMAIL_FROM"
-write_env RESEND_API_KEY "$RESEND_API_KEY"
-write_env EMAIL_FROM "$EMAIL_FROM"
+stage "EmailJS transactional email"
+say "EmailJS sends signup OTP and recovery messages through a connected personal Gmail account."
+open_url "https://dashboard.emailjs.com/admin"
+step "Connect Gmail, create the MOSTLYVERS template, then copy its service, template, and account keys."
+ask EMAILJS_SERVICE_ID "EmailJS service ID:"
+ask EMAILJS_TEMPLATE_ID "EmailJS template ID:"
+ask EMAILJS_PUBLIC_KEY "EmailJS public key:"
+ask_secret EMAILJS_PRIVATE_KEY "EmailJS private key (recommended for server-side requests):"
+for pair in \
+  "EMAILJS_SERVICE_ID:$EMAILJS_SERVICE_ID" \
+  "EMAILJS_TEMPLATE_ID:$EMAILJS_TEMPLATE_ID" \
+  "EMAILJS_PUBLIC_KEY:$EMAILJS_PUBLIC_KEY"; do
+  require_value "${pair%%:*}" "${pair#*:}"
+done
+write_env EMAILJS_SERVICE_ID "$EMAILJS_SERVICE_ID"
+write_env EMAILJS_TEMPLATE_ID "$EMAILJS_TEMPLATE_ID"
+write_env EMAILJS_PUBLIC_KEY "$EMAILJS_PUBLIC_KEY"
+write_env EMAILJS_PRIVATE_KEY "$EMAILJS_PRIVATE_KEY"
 
 stage "Production origins and cryptographic secrets"
 say "The admin origin must be an exact HTTPS origin, with no path or trailing slash."
@@ -322,7 +330,7 @@ for key in ACCESS_TOKEN_PRIVATE_KEY_BASE64 CONTENT_KEY_ENCRYPTION_KEY_BASE64 INT
 done
 write_env APP_ENV "production"
 write_env BILLING_MODE "FREE_LAUNCH"
-write_env EMAIL_PROVIDER "resend"
+write_env EMAIL_PROVIDER "emailjs"
 write_env EMAIL_OTP_REQUIRED "true"
 write_env ADMIN_COOKIE_SECURE "true"
 write_env PLAY_INTEGRITY_REQUIRED "false"
@@ -384,7 +392,7 @@ say "Confirm the service is healthy before connecting the admin dashboard and An
 step "In Render Logs, confirm migrations completed and the API is listening without configuration errors."
 step "After Cloudflare Pages deploys, replace bootstrap.invalid with the exact https://PROJECT.pages.dev URL in Render → Environment → ADMIN_ORIGIN, then Save and deploy."
 step "In Supabase Storage, keep the bucket private. Do not create a public read policy."
-step "In Resend, confirm the sender domain remains verified."
+step "In EmailJS, confirm the Gmail service remains connected and the monthly request allowance is available."
 step "Run the GitHub run-background-jobs workflow manually and confirm it succeeds."
 open_url "https://github.com/adarsh4567/mostlyvers-backend/actions"
 pause "Press Enter after checking the Render logs and GitHub workflow."

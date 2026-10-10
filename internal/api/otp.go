@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"html"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"strings"
@@ -54,8 +55,14 @@ func (s *Server) requestSignupOTP(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	err = s.email.Send(r.Context(), emailpkg.Message{To: email, Subject: "Your MOSTLYVERS verification code", HTML: `<p>Your verification code is <strong>` + html.EscapeString(code) + `</strong>.</p><p>It expires in 10 minutes.</p>`})
+	err = s.email.Send(r.Context(), emailpkg.Message{
+		To: email, Subject: code + " is your MOSTLYVERS verification code",
+		HTML:           `<p>Your verification code is <strong>` + html.EscapeString(code) + `</strong>.</p><p>It expires in 10 minutes.</p>`,
+		TemplateParams: map[string]string{"otp_code": code, "reader_name": "Reader", "expires_minutes": "10"},
+	})
 	if err != nil {
+		_, _ = s.store.Pool.Exec(r.Context(), `DELETE FROM email_otp_challenges WHERE id=$1 AND consumed_at IS NULL`, id)
+		slog.Warn("signup OTP delivery failed", "provider", s.cfg.EmailProvider, "error", err)
 		httpx.WriteError(w, r, httpx.NewError(503, "EMAIL_UNAVAILABLE", "The verification email could not be sent. Try again."))
 		return
 	}
